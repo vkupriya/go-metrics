@@ -59,11 +59,6 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if r.Header.Get("Content-Type") != "text/plain" {
-		rw.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
 	url := r.URL.RequestURI()
 
 	urlParams := strings.Split(url, "/")
