@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+const (
+	pos2 int = 2
+	pos3 int = 3
+	pos4 int = 4
+)
+
 type Storage interface {
 	UpdateGaugeMetric(name string, value float64) float64
 	UpdateCounterMetric(name string, value int64) int64
@@ -33,28 +39,23 @@ func NewMetricResource(storage Storage) *MetricResource {
 }
 
 func (m *MemStorage) UpdateGaugeMetric(name string, value float64) float64 {
-
 	m.gauge[name] = value
 	return m.gauge[name]
-
 }
 
 func (m *MemStorage) UpdateCounterMetric(name string, value int64) int64 {
-
 	m.counter[name] += value
 	return m.counter[name]
-
 }
 
 func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) {
-
 	var (
 		mtype  string
 		mname  string
 		mvalue string
 	)
 
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -65,19 +66,17 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 
 	for i, v := range urlParams {
 		switch {
-		case i == 2:
+		case i == pos2:
 			mtype = v
-		case i == 3:
+		case i == pos3:
 			mname = v
-		case i == 4:
+		case i == pos4:
 			mvalue = v
-
 		}
 	}
 	if mtype != "gauge" && mtype != "counter" {
 		rw.WriteHeader(http.StatusBadRequest)
 		return
-
 	}
 
 	if mname == "" {
@@ -90,7 +89,6 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 	}
 
 	if mtype != "" && mname != "" && mvalue != "" {
-
 		switch {
 		case mtype == "gauge":
 			mv, err := strconv.ParseFloat(mvalue, 64)
@@ -99,7 +97,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				return
 			}
 			res := mr.storage.UpdateGaugeMetric(mname, mv)
-			fmt.Printf("Updated gauge metric %s with value %f", mname, res)
+			fmt.Printf("Updated gauge metric %s with value %f\n", mname, res)
 			rw.WriteHeader(http.StatusOK)
 
 		case mtype == "counter":
@@ -117,7 +115,6 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 }
 
 func main() {
-
 	s := NewMemStorage()
 	mr := NewMetricResource(s)
 
@@ -130,5 +127,4 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 }

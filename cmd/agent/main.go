@@ -71,7 +71,6 @@ func (c *Collector) StartTickers() {
 
 	for {
 		select {
-
 		case <-collectTicker.C:
 			c.collectMetrics()
 		case <-sendTicker.C:
@@ -81,53 +80,49 @@ func (c *Collector) StartTickers() {
 }
 
 func (c *Collector) sendMetrics() error {
-
 	// Sending counter metrics
-
 	for k, v := range c.counter {
-
 		mvalue := fmt.Sprintf("%d", v)
-		url := fmt.Sprintf("http://localhost:8080/update/counter/%s/%s", k, mvalue)
+		mtype := "counter"
 
-		req, err := http.NewRequest(http.MethodPost, url, nil)
-		if err != nil {
-			return err
+		if err := metricPost(mtype, k, mvalue); err != nil {
+			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
 		}
-		req.Header.Set(`Content-Type`, `text/plain`)
-
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Sent counter metric: %s, Status code: %d\n", k, res.StatusCode)
 	}
 
 	// Sending gauge metrics
-
 	for k, v := range c.gauge {
-
 		mvalue := fmt.Sprintf("%.02f", v)
-		url := fmt.Sprintf("http://localhost:8080/update/gauge/%s/%s", k, mvalue)
+		mtype := "gauge"
 
-		req, err := http.NewRequest(http.MethodPost, url, nil)
-		if err != nil {
-			return err
+		if err := metricPost(mtype, k, mvalue); err != nil {
+			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
 		}
-		req.Header.Set(`Content-Type`, `text/plain`)
-
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Sent counter metric: %s, Status code: %d\n", k, res.StatusCode)
 	}
+	return nil
+}
 
+func metricPost(t string, m string, v string) error {
+	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%s", t, m, v)
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating new http request: %w", err)
+	}
+	req.Header.Set(`Content-Type`, `text/plain`)
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error to do http post: %w", err)
+	}
+	fmt.Printf("Sent %s metric: %s, Status code: %d\n", t, m, res.StatusCode)
+	if err := res.Body.Close(); err != nil {
+		return fmt.Errorf("error closing http client body: %w", err)
+	}
 	return nil
 }
 
 func main() {
 	collector := NewCollector()
-
 	collector.StartTickers()
-
 }
