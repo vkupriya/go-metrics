@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
@@ -23,12 +24,11 @@ func NewMetricResource(storage storage.Storage) *MetricResource {
 	return &MetricResource{storage: storage}
 }
 
-func NewRouter(mr *MetricResource) chi.Router {
+func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
-	// r.Use(middleware.Logger)
-	// r.Use(middleware.AllowContentType("text/plain"))
-
+	r.Use(middleware.Logger)
+	r.Use(middleware.AllowContentType("text/plain"))
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
 	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
 
@@ -79,7 +79,6 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 }
 
 func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
-	fmt.Println("In GetMetric function")
 	mtype := chi.URLParam(r, "metricType")
 	mname := chi.URLParam(r, "metricName")
 
@@ -87,7 +86,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	fmt.Println(mtype, mname)
+
 	switch {
 	case mtype == gauge:
 		v, err := mr.storage.GetGaugeMetric(mname)

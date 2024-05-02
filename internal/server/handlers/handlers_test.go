@@ -29,7 +29,7 @@ func TestUpdateMetric(t *testing.T) {
 	s := storage.NewMemStorage()
 	mr := NewMetricResource(s)
 
-	ts := httptest.NewServer(NewRouter(mr))
+	ts := httptest.NewServer(NewMetricRouter(mr))
 
 	type args struct {
 		path   string
