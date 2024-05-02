@@ -1,7 +1,11 @@
 package server
 
 import (
+	"log"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/vkupriya/go-metrics/internal/server/handlers"
 	"github.com/vkupriya/go-metrics/internal/server/storage"
@@ -12,13 +16,13 @@ func Start() {
 
 	mr := handlers.NewMetricResource(s)
 
-	mux := http.NewServeMux()
+	r := chi.NewRouter()
 
-	mux.HandleFunc("/update/", mr.UpdateMetric)
+	r.Use(middleware.Logger)
+	r.Use(middleware.AllowContentType("text/plain"))
 
-	err := http.ListenAndServe(":8080", mux)
+	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
 
-	if err != nil {
-		panic(err)
-	}
+	log.Fatal(http.ListenAndServe(":8080", r))
+
 }

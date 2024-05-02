@@ -2,17 +2,18 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
 const (
-	pos2 int = 2
-	pos3 int = 3
-	pos4 int = 4
+	counter string = "counter"
+	gauge   string = "gauge"
 )
 
 type MetricResource struct {
@@ -23,34 +24,24 @@ func NewMetricResource(storage storage.Storage) *MetricResource {
 	return &MetricResource{storage: storage}
 }
 
+func NewRouter(mr *MetricResource) chi.Router {
+	r := chi.NewRouter()
+
+	r.Use(middleware.Logger)
+	r.Use(middleware.AllowContentType("text/plain"))
+
+	// r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
+	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
+
+	return r
+}
+
 func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) {
-	var (
-		mtype  string
-		mname  string
-		mvalue string
-	)
+	mtype := chi.URLParam(r, "metricType")
+	mname := chi.URLParam(r, "metricName")
+	mvalue := chi.URLParam(r, "metricValue")
 
-	url := r.URL.RequestURI()
-
-	urlParams := strings.Split(url, "/")
-
-	for i, v := range urlParams {
-		switch {
-		case i == pos2:
-			mtype = v
-		case i == pos3:
-			mname = v
-		case i == pos4:
-			mvalue = v
-		}
-	}
-
-	if r.Method != http.MethodPost {
-		rw.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	if mtype != "gauge" && mtype != "counter" {
+	if mtype != gauge && mtype != counter {
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -66,26 +57,62 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 
 	if mtype != "" && mname != "" && mvalue != "" {
 		switch {
-		case mtype == "gauge":
+		case mtype == gauge:
 			mv, err := strconv.ParseFloat(mvalue, 64)
 			if err != nil {
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			res := mr.storage.UpdateGaugeMetric(mname, mv)
-			fmt.Printf("Updated gauge metric %s with value %f\n", mname, res)
+			mr.storage.UpdateGaugeMetric(mname, mv)
 			rw.WriteHeader(http.StatusOK)
 
-		case mtype == "counter":
+		case mtype == counter:
 			mv, err := strconv.ParseInt(mvalue, 10, 64)
 			if err != nil {
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			res := mr.storage.UpdateCounterMetric(mname, mv)
-			fmt.Printf("Updated counter metric %s, new value is %d\n", mname, res)
+			mr.storage.UpdateCounterMetric(mname, mv)
 			rw.WriteHeader(http.StatusOK)
 		}
 		return
+	}
+}
+
+func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
+	fmt.Println("In GetMetric function")
+	mtype := chi.URLParam(r, "metricType")
+	mname := chi.URLParam(r, "metricName")
+
+	if mtype != gauge && mtype != counter {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	fmt.Println(mtype, mname)
+	switch {
+	case mtype == gauge:
+		v, err := mr.storage.GetGaugeMetric(mname)
+		if err != nil {
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		} else {
+			if _, err := io.WriteString(rw, fmt.Sprintf("%.02f", v)); err != nil {
+				panic(err)
+			}
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
+	case mtype == counter:
+		v, err := mr.storage.GetCounterMetric(mname)
+		if err != nil {
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		} else {
+			if _, err := io.WriteString(rw, fmt.Sprintf("%d", v)); err != nil {
+				panic(err)
+			}
+			rw.WriteHeader(http.StatusOK)
+			return
+		}
 	}
 }

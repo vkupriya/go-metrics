@@ -1,8 +1,14 @@
 package storage
 
+import (
+	"fmt"
+)
+
 type Storage interface {
 	UpdateGaugeMetric(name string, value float64) float64
 	UpdateCounterMetric(name string, value int64) int64
+	GetCounterMetric(name string) (int64, error)
+	GetGaugeMetric(name string) (float64, error)
 }
 
 type MemStorage struct {
@@ -25,4 +31,20 @@ func (m *MemStorage) UpdateGaugeMetric(name string, value float64) float64 {
 func (m *MemStorage) UpdateCounterMetric(name string, value int64) int64 {
 	m.counter[name] += value
 	return m.counter[name]
+}
+
+func (m *MemStorage) GetCounterMetric(name string) (int64, error) {
+	v, ok := m.counter[name]
+	if ok {
+		return v, nil
+	}
+	return v, fmt.Errorf("unknown metric %s ", name)
+}
+
+func (m *MemStorage) GetGaugeMetric(name string) (float64, error) {
+	v, ok := m.gauge[name]
+	if ok {
+		return v, nil
+	}
+	return v, fmt.Errorf("unknown metric %s ", name)
 }

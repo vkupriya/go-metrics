@@ -6,10 +6,31 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
-func TestUpdateMetricHandler(t *testing.T) {
+func testRequest(t *testing.T, ts *httptest.Server, method, path string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, ts.URL+path, nil)
+	require.NoError(t, err)
+
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	if err := resp.Body.Close(); err != nil {
+		panic(err)
+	}
+
+	return resp
+}
+
+func TestUpdateMetric(t *testing.T) {
+	s := storage.NewMemStorage()
+	mr := NewMetricResource(s)
+
+	ts := httptest.NewServer(NewRouter(mr))
+
 	type args struct {
 		path   string
 		method string
@@ -70,19 +91,9 @@ func TestUpdateMetricHandler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := storage.NewMemStorage()
-			mr := NewMetricResource(s)
-
-			request := httptest.NewRequest(tt.args.method, tt.args.path, nil)
-
-			w := httptest.NewRecorder()
-			h := http.HandlerFunc(mr.UpdateMetric)
-			h(w, request)
-
-			result := w.Result()
-			assert.Equal(t, tt.wantCode, result.StatusCode)
-
-			if err := result.Body.Close(); err != nil {
+			resp := testRequest(t, ts, tt.args.method, tt.args.path)
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+			if err := resp.Body.Close(); err != nil {
 				panic(err)
 			}
 		})
