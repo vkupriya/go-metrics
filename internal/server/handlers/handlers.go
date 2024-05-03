@@ -94,7 +94,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		} else {
-			if _, err := io.WriteString(rw, fmt.Sprintf("%.02f", v)); err != nil {
+			if _, err := io.WriteString(rw, fmt.Sprintf("%.03f", v)); err != nil {
 				panic(err)
 			}
 			rw.WriteHeader(http.StatusOK)
