@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -9,19 +10,31 @@ import (
 )
 
 const (
-	PollInterval   int64 = 2
-	ReportInterval int64 = 10
+	pollIntDefault   int64 = 2
+	reportIntDefault int64 = 10
 )
+
+var (
+	metricHost     = flag.String("a", "localhost:8080", "Address and port of the metric server.")
+	reportInterval = flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
+	pollInterval   = flag.Int64("p", pollIntDefault, "Metric collection interval in seconds")
+)
+
+type config struct {
+	metricHost string
+}
 
 type Collector struct {
 	gauge   map[string]float64
 	counter map[string]int64
+	config  config
 }
 
-func NewCollector() *Collector {
+func NewCollector(c config) *Collector {
 	return &Collector{
 		gauge:   make(map[string]float64),
 		counter: make(map[string]int64),
+		config:  c,
 	}
 }
 
@@ -61,12 +74,12 @@ func (c *Collector) collectMetrics() {
 	c.counter[`PollCount`]++
 }
 
-func (c *Collector) StartTickers() {
+func (c *Collector) StartTickers(p int64, r int64) {
 	// Start tickers
-	collectTicker := time.NewTicker(time.Duration(PollInterval) * time.Second)
+	collectTicker := time.NewTicker(time.Duration(p) * time.Second)
 	defer collectTicker.Stop()
 
-	sendTicker := time.NewTicker(time.Duration(ReportInterval) * time.Second)
+	sendTicker := time.NewTicker(time.Duration(r) * time.Second)
 	defer sendTicker.Stop()
 
 	for {
@@ -85,25 +98,26 @@ func (c *Collector) sendMetrics() error {
 		mvalue := fmt.Sprintf("%d", v)
 		mtype := "counter"
 
-		if err := metricPost(mtype, k, mvalue); err != nil {
+		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
 			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
+	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
 	for k, v := range c.gauge {
 		mvalue := fmt.Sprintf("%.02f", v)
 		mtype := "gauge"
 
-		if err := metricPost(mtype, k, mvalue); err != nil {
+		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
 			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
 	return nil
 }
 
-func metricPost(t string, m string, v string) error {
-	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%s", t, m, v)
+func metricPost(t string, m string, v string, h string) error {
+	url := fmt.Sprintf("http://%s/update/%s/%s/%s", h, t, m, v)
 
 	req, err := http.NewRequest(http.MethodPost, url, nil)
 	if err != nil {
@@ -123,6 +137,10 @@ func metricPost(t string, m string, v string) error {
 }
 
 func main() {
-	collector := NewCollector()
-	collector.StartTickers()
+	flag.Parse()
+	c := config{
+		metricHost: *metricHost,
+	}
+	collector := NewCollector(c)
+	collector.StartTickers(*pollInterval, *reportInterval)
 }

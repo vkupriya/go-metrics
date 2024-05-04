@@ -9,6 +9,7 @@ type Storage interface {
 	UpdateCounterMetric(name string, value int64) int64
 	GetCounterMetric(name string) (int64, error)
 	GetGaugeMetric(name string) (float64, error)
+	GetAllValues() (map[string]float64, map[string]int64)
 }
 
 type MemStorage struct {
@@ -47,4 +48,8 @@ func (m *MemStorage) GetGaugeMetric(name string) (float64, error) {
 		return v, nil
 	}
 	return v, fmt.Errorf("unknown metric %s ", name)
+}
+
+func (m *MemStorage) GetAllValues() (map[string]float64, map[string]int64) {
+	return m.gauge, m.counter
 }

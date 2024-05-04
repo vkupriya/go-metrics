@@ -2,14 +2,30 @@ package handlers
 
 import (
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
+
+const tmpl string = `
+	<!doctype html>
+
+	<body>
+		<ul>
+		{{ range $key, $value := . }}
+			<li><b>{{ $key }}</b>: {{ $value }}</li>
+		{{ end }}
+		</ul>
+	</body>
+
+	</html>
+`
 
 const (
 	counter string = "counter"
@@ -29,6 +45,8 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.AllowContentType("text/plain"))
+
+	r.Get("/", mr.GetAllMetrics)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
 	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
 
@@ -113,4 +131,30 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request) {
+	gauge, counter := mr.storage.GetAllValues()
+
+	allMetrics := make(map[string]any)
+
+	for name, value := range gauge {
+		allMetrics[name] = value
+		fmt.Println("name: ", name)
+	}
+
+	for name, value := range counter {
+		allMetrics[name] = value
+	}
+
+	t, err := template.New("tmpl").Parse(tmpl)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := t.Execute(rw, allMetrics); err != nil {
+		panic(err)
+	}
+
+	rw.WriteHeader(http.StatusOK)
 }
