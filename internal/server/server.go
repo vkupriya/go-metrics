@@ -17,5 +17,5 @@ func Start() {
 
 	r := handlers.NewMetricRouter(mr)
 
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(http.ListenAndServe(flagRunAddr, r))
 }
