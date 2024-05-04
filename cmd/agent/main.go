@@ -21,7 +21,9 @@ var (
 )
 
 type config struct {
-	metricHost string
+	metricHost     string
+	reportInterval int64
+	pollInterval   int64
 }
 
 type Collector struct {
@@ -74,12 +76,12 @@ func (c *Collector) collectMetrics() {
 	c.counter[`PollCount`]++
 }
 
-func (c *Collector) StartTickers(p int64, r int64) {
+func (c *Collector) StartTickers() {
 	// Start tickers
-	collectTicker := time.NewTicker(time.Duration(p) * time.Second)
+	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
 	defer collectTicker.Stop()
 
-	sendTicker := time.NewTicker(time.Duration(r) * time.Second)
+	sendTicker := time.NewTicker(time.Duration(c.config.reportInterval) * time.Second)
 	defer sendTicker.Stop()
 
 	for {
@@ -139,8 +141,10 @@ func metricPost(t string, m string, v string, h string) error {
 func main() {
 	flag.Parse()
 	c := config{
-		metricHost: *metricHost,
+		metricHost:     *metricHost,
+		pollInterval:   *pollInterval,
+		reportInterval: *reportInterval,
 	}
 	collector := NewCollector(c)
-	collector.StartTickers(*pollInterval, *reportInterval)
+	collector.StartTickers()
 }

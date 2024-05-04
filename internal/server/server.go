@@ -9,6 +9,8 @@ import (
 )
 
 func Start() {
+	parseFlags()
+
 	s := storage.NewMemStorage()
 
 	mr := handlers.NewMetricResource(s)
@@ -16,5 +18,4 @@ func Start() {
 	r := handlers.NewMetricRouter(mr)
 
 	log.Fatal(http.ListenAndServe(":8080", r))
-
 }
