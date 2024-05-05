@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -78,6 +80,8 @@ func (c *Collector) collectMetrics() {
 
 func (c *Collector) StartTickers() {
 	// Start tickers
+	sent := make(chan string)
+
 	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
 	defer collectTicker.Stop()
 
@@ -86,15 +90,18 @@ func (c *Collector) StartTickers() {
 
 	for {
 		select {
+		case <-sent:
+			fmt.Println("Received sent completion message")
+			c.counter["PollCount"] = 0
 		case <-collectTicker.C:
 			c.collectMetrics()
 		case <-sendTicker.C:
-			go c.sendMetrics()
+			go c.sendMetrics(sent)
 		}
 	}
 }
 
-func (c *Collector) sendMetrics() error {
+func (c *Collector) sendMetrics(ch chan string) error {
 	// Sending counter metrics
 	for k, v := range c.counter {
 		mvalue := fmt.Sprintf("%d", v)
@@ -104,7 +111,6 @@ func (c *Collector) sendMetrics() error {
 			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
-	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
 	for k, v := range c.gauge {
@@ -115,6 +121,7 @@ func (c *Collector) sendMetrics() error {
 			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
+	ch <- "done"
 	return nil
 }
 
@@ -145,6 +152,27 @@ func main() {
 		pollInterval:   *pollInterval,
 		reportInterval: *reportInterval,
 	}
+
+	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
+		c.metricHost = envAddr
+	}
+
+	if envPoll := os.Getenv("POLL_INTERVAL"); envPoll != "" {
+		envPollInt, err := strconv.ParseInt(envPoll, 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		c.pollInterval = envPollInt
+	}
+
+	if envReport := os.Getenv("REPORT_INTERVAL"); envReport != "" {
+		envReportInt, err := strconv.ParseInt(envReport, 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		c.reportInterval = envReportInt
+	}
+
 	collector := NewCollector(c)
 	collector.StartTickers()
 }
