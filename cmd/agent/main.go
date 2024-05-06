@@ -4,16 +4,18 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"os"
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 const (
 	pollIntDefault   int64 = 2
 	reportIntDefault int64 = 10
+	httpTimeout      int   = 30
 )
 
 var (
@@ -80,7 +82,6 @@ func (c *Collector) collectMetrics() {
 
 func (c *Collector) StartTickers() {
 	// Start tickers
-	sent := make(chan string)
 
 	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
 	defer collectTicker.Stop()
@@ -90,27 +91,28 @@ func (c *Collector) StartTickers() {
 
 	for {
 		select {
-		case <-sent:
-			fmt.Println("Received sent completion message")
-			c.counter["PollCount"] = 0
 		case <-collectTicker.C:
 			c.collectMetrics()
 		case <-sendTicker.C:
-			go c.sendMetrics(sent)
+			if err := c.sendMetrics(); err != nil {
+				fmt.Println(err)
+			}
 		}
 	}
 }
 
-func (c *Collector) sendMetrics(ch chan string) error {
+func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
 	for k, v := range c.counter {
 		mvalue := fmt.Sprintf("%d", v)
 		mtype := "counter"
 
 		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
-			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
+			return fmt.Errorf("failed http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
+	// Resetting PollCount to 0
+	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
 	for k, v := range c.gauge {
@@ -118,30 +120,28 @@ func (c *Collector) sendMetrics(ch chan string) error {
 		mtype := "gauge"
 
 		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
-			return fmt.Errorf("failed to perform http post for %s metric %s: %w", mtype, k, err)
+			return fmt.Errorf("failed http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
-	ch <- "done"
 	return nil
 }
 
 func metricPost(t string, m string, v string, h string) error {
+	client := resty.New()
+	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
+
 	url := fmt.Sprintf("http://%s/update/%s/%s/%s", h, t, m, v)
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
-	if err != nil {
-		return fmt.Errorf("error creating new http request: %w", err)
-	}
-	req.Header.Set(`Content-Type`, `text/plain`)
+	resp, err := client.R().
+		SetHeader("Content-Type", "text/plain").
+		Post(url)
 
-	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error to do http post: %w", err)
 	}
-	fmt.Printf("Sent %s metric: %s, Status code: %d\n", t, m, res.StatusCode)
-	if err := res.Body.Close(); err != nil {
-		return fmt.Errorf("error closing http client body: %w", err)
-	}
+
+	fmt.Printf("Sent %s metric: %s, Status code: %d\n", t, m, resp.StatusCode())
+
 	return nil
 }
 
