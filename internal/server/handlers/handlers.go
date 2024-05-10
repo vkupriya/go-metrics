@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -111,7 +110,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		} else {
-			if _, err := io.WriteString(rw, fmt.Sprintf("%g", v)); err != nil {
+			if _, err := fmt.Fprintf(rw, "%g", v); err != nil {
 				panic(err)
 			}
 			rw.WriteHeader(http.StatusOK)
@@ -123,7 +122,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		} else {
-			if _, err := io.WriteString(rw, fmt.Sprintf("%d", v)); err != nil {
+			if _, err := fmt.Fprintf(rw, "%d", v); err != nil {
 				panic(err)
 			}
 			rw.WriteHeader(http.StatusOK)
