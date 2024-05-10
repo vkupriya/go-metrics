@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -111,7 +112,8 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		} else {
 			if _, err := fmt.Fprintf(rw, "%g", v); err != nil {
-				panic(err)
+				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
+				http.Error(rw, "", http.StatusInternalServerError)
 			}
 			rw.WriteHeader(http.StatusOK)
 			return
@@ -123,7 +125,8 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		} else {
 			if _, err := fmt.Fprintf(rw, "%d", v); err != nil {
-				panic(err)
+				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
+				http.Error(rw, "", http.StatusInternalServerError)
 			}
 			rw.WriteHeader(http.StatusOK)
 			return
@@ -138,7 +141,6 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 	for name, value := range gauge {
 		allMetrics[name] = value
-		fmt.Println("name: ", name)
 	}
 
 	for name, value := range counter {
@@ -147,11 +149,13 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 	t, err := template.New("tmpl").Parse(tmpl)
 	if err != nil {
-		panic(err)
+		log.Printf("failed to load http template: %v", err)
+		http.Error(rw, "", http.StatusInternalServerError)
 	}
 
 	if err := t.Execute(rw, allMetrics); err != nil {
-		panic(err)
+		log.Printf("failed to execute http template: %v", err)
+		http.Error(rw, "", http.StatusInternalServerError)
 	}
 
 	rw.WriteHeader(http.StatusOK)

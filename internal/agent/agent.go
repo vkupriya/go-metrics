@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -79,7 +80,7 @@ func (c *Collector) collectMetrics() {
 	c.counter[`PollCount`]++
 }
 
-func (c *Collector) StartTickers() {
+func (c *Collector) StartTickers() error {
 	// Start tickers
 
 	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
@@ -94,7 +95,7 @@ func (c *Collector) StartTickers() {
 			c.collectMetrics()
 		case <-sendTicker.C:
 			if err := c.sendMetrics(); err != nil {
-				fmt.Println(err)
+				return err
 			}
 		}
 	}
@@ -145,7 +146,7 @@ func metricPost(t string, m string, v string, h string) error {
 	return nil
 }
 
-func Start() {
+func Start() error {
 	flag.Parse()
 	c := config{
 		metricHost:     *metricHost,
@@ -153,26 +154,28 @@ func Start() {
 		reportInterval: *reportInterval,
 	}
 
-	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
+	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		c.metricHost = envAddr
 	}
 
-	if envPoll := os.Getenv("POLL_INTERVAL"); envPoll != "" {
+	if envPoll, ok := os.LookupEnv("POLL_INTERVAL"); ok {
 		envPollInt, err := strconv.ParseInt(envPoll, 10, 64)
 		if err != nil {
-			panic(err)
+			return errors.New("failed to convert POLL_INTERVAL to integer")
 		}
 		c.pollInterval = envPollInt
 	}
 
-	if envReport := os.Getenv("REPORT_INTERVAL"); envReport != "" {
+	if envReport, ok := os.LookupEnv("REPORT_INTERVAL"); ok {
 		envReportInt, err := strconv.ParseInt(envReport, 10, 64)
 		if err != nil {
-			panic(err)
+			return errors.New("failed to convert REPORT_INTERVAL to integer")
 		}
 		c.reportInterval = envReportInt
 	}
 
 	collector := NewCollector(c)
 	collector.StartTickers()
+
+	return nil
 }
