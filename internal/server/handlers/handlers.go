@@ -151,11 +151,13 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Printf("failed to load http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
+		return
 	}
 
 	if err := t.Execute(rw, allMetrics); err != nil {
 		log.Printf("failed to execute http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
+		return
 	}
 
 	rw.WriteHeader(http.StatusOK)

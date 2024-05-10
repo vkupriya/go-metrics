@@ -175,7 +175,9 @@ func Start() error {
 	}
 
 	collector := NewCollector(c)
-	collector.StartTickers()
+	if err := collector.StartTickers(); err != nil {
+		return err
+	}
 
 	return nil
 }
