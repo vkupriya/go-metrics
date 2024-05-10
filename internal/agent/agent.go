@@ -103,7 +103,7 @@ func (c *Collector) StartTickers() {
 func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
 	for k, v := range c.counter {
-		mvalue := fmt.Sprintf("%d", v)
+		mvalue := strconv.FormatInt(v, 10)
 		mtype := "counter"
 
 		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {

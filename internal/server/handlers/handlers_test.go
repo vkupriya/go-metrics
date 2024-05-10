@@ -13,7 +13,7 @@ import (
 
 func testRequest(t *testing.T, ts *httptest.Server, method, path string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest(method, ts.URL+path, nil)
+	req, err := http.NewRequest(method, ts.URL+path, http.NoBody)
 	require.NoError(t, err)
 
 	resp, err := ts.Client().Do(req)
