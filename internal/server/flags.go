@@ -12,7 +12,7 @@ func parseFlags() {
 
 	flag.Parse()
 
-	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+	if envRunAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		flagRunAddr = envRunAddr
 	}
 }

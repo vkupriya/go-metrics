@@ -94,7 +94,7 @@ func TestUpdateMetric(t *testing.T) {
 			resp := testRequest(t, ts, tt.args.method, tt.args.path)
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
 			if err := resp.Body.Close(); err != nil {
-				panic(err)
+				assert.Error(t, err)
 			}
 		})
 	}
