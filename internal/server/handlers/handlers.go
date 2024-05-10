@@ -32,11 +32,11 @@ const (
 )
 
 type MetricResource struct {
-	storage storage.Storage
+	store storage.Storage
 }
 
-func NewMetricResource(storage storage.Storage) *MetricResource {
-	return &MetricResource{storage: storage}
+func NewMetricResource(store storage.Storage) *MetricResource {
+	return &MetricResource{store: store}
 }
 
 func NewMetricRouter(mr *MetricResource) chi.Router {
@@ -79,7 +79,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.storage.UpdateGaugeMetric(mname, mv)
+			mr.store.UpdateGaugeMetric(mname, mv)
 			rw.WriteHeader(http.StatusOK)
 
 		case mtype == counter:
@@ -88,7 +88,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.storage.UpdateCounterMetric(mname, mv)
+			mr.store.UpdateCounterMetric(mname, mv)
 			rw.WriteHeader(http.StatusOK)
 		}
 		return
@@ -106,7 +106,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case mtype == gauge:
-		v, err := mr.storage.GetGaugeMetric(mname)
+		v, err := mr.store.GetGaugeMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -118,7 +118,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case mtype == counter:
-		v, err := mr.storage.GetCounterMetric(mname)
+		v, err := mr.store.GetCounterMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -133,7 +133,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request) {
-	gauge, counter := mr.storage.GetAllValues()
+	gauge, counter := mr.store.GetAllValues()
 
 	allMetrics := make(map[string]any)
 
