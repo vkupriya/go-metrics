@@ -9,7 +9,10 @@ import (
 )
 
 func Start() {
-	parseFlags()
+	c, err := NewConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	s := storage.NewMemStorage()
 
@@ -17,5 +20,5 @@ func Start() {
 
 	r := handlers.NewMetricRouter(mr)
 
-	log.Fatal(http.ListenAndServe(flagRunAddr, r))
+	log.Fatal(http.ListenAndServe(c.hostAddress, r))
 }

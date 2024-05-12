@@ -7,11 +7,6 @@ import (
 	"strconv"
 )
 
-const (
-	pollIntDefault   int64 = 2
-	reportIntDefault int64 = 10
-)
-
 type Config struct {
 	metricHost     string
 	reportInterval int64
@@ -20,8 +15,13 @@ type Config struct {
 }
 
 func NewConfig() (*Config, error) {
+
 	// default httpTimeout = 30 sec
-	const httpTimeout int64 = 30
+	const (
+		pollIntDefault   int64 = 2
+		reportIntDefault int64 = 10
+		httpTimeout      int64 = 30
+	)
 
 	metricHost := flag.String("a", "localhost:8080", "Address and port of the metric server.")
 	reportInterval := flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
