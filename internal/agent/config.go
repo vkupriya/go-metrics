@@ -15,8 +15,6 @@ type Config struct {
 }
 
 func NewConfig() (*Config, error) {
-
-	// default httpTimeout = 30 sec
 	const (
 		pollIntDefault   int64 = 2
 		reportIntDefault int64 = 10
