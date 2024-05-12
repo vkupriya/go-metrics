@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -9,7 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
 const tmpl string = `
@@ -26,16 +24,24 @@ const tmpl string = `
 	</html>
 `
 
+type Storage interface {
+	UpdateGaugeMetric(name string, value float64) float64
+	UpdateCounterMetric(name string, value int64) int64
+	GetCounterMetric(name string) (int64, error)
+	GetGaugeMetric(name string) (float64, error)
+	GetAllValues() (map[string]float64, map[string]int64)
+}
+
 const (
 	counter string = "counter"
 	gauge   string = "gauge"
 )
 
 type MetricResource struct {
-	store storage.Storage
+	store Storage
 }
 
-func NewMetricResource(store storage.Storage) *MetricResource {
+func NewMetricResource(store Storage) *MetricResource {
 	return &MetricResource{store: store}
 }
 
@@ -111,7 +117,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		} else {
-			if _, err := fmt.Fprintf(rw, "%g", v); err != nil {
+			if _, err := rw.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64))); err != nil {
 				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
 				http.Error(rw, "", http.StatusInternalServerError)
 			}
@@ -124,7 +130,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		} else {
-			if _, err := fmt.Fprintf(rw, "%d", v); err != nil {
+			if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
 				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
 				http.Error(rw, "", http.StatusInternalServerError)
 			}

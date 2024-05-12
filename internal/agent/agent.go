@@ -1,11 +1,9 @@
 package agent
 
 import (
-	"errors"
-	"flag"
 	"fmt"
+	"log"
 	"math/rand"
-	"os"
 	"runtime"
 	"strconv"
 	"time"
@@ -13,30 +11,13 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
-const (
-	pollIntDefault   int64 = 2
-	reportIntDefault int64 = 10
-)
-
-var (
-	metricHost     = flag.String("a", "localhost:8080", "Address and port of the metric server.")
-	reportInterval = flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
-	pollInterval   = flag.Int64("p", pollIntDefault, "Metric collection interval in seconds")
-)
-
-type config struct {
-	metricHost     string
-	reportInterval int64
-	pollInterval   int64
-}
-
 type Collector struct {
 	gauge   map[string]float64
 	counter map[string]int64
-	config  config
+	config  Config
 }
 
-func NewCollector(c config) *Collector {
+func NewCollector(c Config) *Collector {
 	return &Collector{
 		gauge:   make(map[string]float64),
 		counter: make(map[string]int64),
@@ -95,7 +76,7 @@ func (c *Collector) StartTickers() error {
 			c.collectMetrics()
 		case <-sendTicker.C:
 			if err := c.sendMetrics(); err != nil {
-				return err
+				log.Printf("error while sending metrics to server: %v", err)
 			}
 		}
 	}
@@ -116,7 +97,7 @@ func (c *Collector) sendMetrics() error {
 
 	// Sending gauge metrics
 	for k, v := range c.gauge {
-		mvalue := fmt.Sprintf("%.02f", v)
+		mvalue := strconv.FormatFloat(v, 'f', -1, 64)
 		mtype := "gauge"
 
 		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
@@ -147,34 +128,12 @@ func metricPost(t string, m string, v string, h string) error {
 }
 
 func Start() error {
-	flag.Parse()
-	c := config{
-		metricHost:     *metricHost,
-		pollInterval:   *pollInterval,
-		reportInterval: *reportInterval,
+	c, err := NewConfig()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
-		c.metricHost = envAddr
-	}
-
-	if envPoll, ok := os.LookupEnv("POLL_INTERVAL"); ok {
-		envPollInt, err := strconv.ParseInt(envPoll, 10, 64)
-		if err != nil {
-			return errors.New("failed to convert POLL_INTERVAL to integer")
-		}
-		c.pollInterval = envPollInt
-	}
-
-	if envReport, ok := os.LookupEnv("REPORT_INTERVAL"); ok {
-		envReportInt, err := strconv.ParseInt(envReport, 10, 64)
-		if err != nil {
-			return errors.New("failed to convert REPORT_INTERVAL to integer")
-		}
-		c.reportInterval = envReportInt
-	}
-
-	collector := NewCollector(c)
+	collector := NewCollector(*c)
 	if err := collector.StartTickers(); err != nil {
 		return err
 	}

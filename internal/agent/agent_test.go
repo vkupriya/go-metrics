@@ -7,7 +7,7 @@ import (
 )
 
 func TestAbs(t *testing.T) {
-	c := config{}
+	c := Config{}
 	collector := NewCollector(c)
 	collector.collectMetrics()
 
