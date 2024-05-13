@@ -4,14 +4,6 @@ import (
 	"fmt"
 )
 
-type Storage interface {
-	UpdateGaugeMetric(name string, value float64) float64
-	UpdateCounterMetric(name string, value int64) int64
-	GetCounterMetric(name string) (int64, error)
-	GetGaugeMetric(name string) (float64, error)
-	GetAllValues() (map[string]float64, map[string]int64)
-}
-
 type MemStorage struct {
 	gauge   map[string]float64
 	counter map[string]int64
