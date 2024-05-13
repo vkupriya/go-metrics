@@ -1,3 +1,9 @@
 package main
 
-func main() {}
+import (
+	"github.com/vkupriya/go-metrics/internal/server"
+)
+
+func main() {
+	server.Start()
+}
