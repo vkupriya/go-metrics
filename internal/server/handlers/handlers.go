@@ -7,7 +7,8 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+
+	logger "github.com/vkupriya/go-metrics/internal/server/middleware"
 )
 
 const tmpl string = `
@@ -48,8 +49,9 @@ func NewMetricResource(store Storage) *MetricResource {
 func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
-	r.Use(middleware.AllowContentType("text/plain"))
+	// r.Use(middleware.Logger)
+	// r.Use(middleware.AllowContentType("text/plain"))
+	r.Use(logger.Logging)
 
 	r.Get("/", mr.GetAllMetrics)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
@@ -121,7 +123,6 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
 				http.Error(rw, "", http.StatusInternalServerError)
 			}
-			rw.WriteHeader(http.StatusOK)
 			return
 		}
 	case mtype == counter:
@@ -134,7 +135,6 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
 				http.Error(rw, "", http.StatusInternalServerError)
 			}
-			rw.WriteHeader(http.StatusOK)
 			return
 		}
 	}

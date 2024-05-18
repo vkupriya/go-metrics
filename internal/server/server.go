@@ -6,6 +6,7 @@ import (
 
 	"github.com/vkupriya/go-metrics/internal/server/handlers"
 	"github.com/vkupriya/go-metrics/internal/server/storage"
+	"go.uber.org/zap"
 )
 
 func Start() {
@@ -13,6 +14,8 @@ func Start() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	zap.ReplaceGlobals(zap.Must(zap.NewDevelopment()))
+	sugar := zap.L().Sugar()
 
 	s := storage.NewMemStorage()
 
@@ -20,5 +23,11 @@ func Start() {
 
 	r := handlers.NewMetricRouter(mr)
 
-	log.Fatal(http.ListenAndServe(c.hostAddress, r))
+	sugar.Infow(
+		"Starting server",
+		"addr", c.hostAddress,
+	)
+	if err := http.ListenAndServe(c.hostAddress, r); err != nil {
+		sugar.Fatalw(err.Error(), "event", "start server")
+	}
 }
