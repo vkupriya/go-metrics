@@ -1,11 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"runtime"
-	"strconv"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -15,6 +15,13 @@ type Collector struct {
 	gauge   map[string]float64
 	counter map[string]int64
 	config  Config
+}
+
+type Metrics struct {
+	Delta *int64   `json:"delta,omitempty"` // значение метрики в случае передачи counter
+	Value *float64 `json:"value,omitempty"` // значение метрики в случае передачи gauge
+	ID    string   `json:"id"`              // имя метрики
+	MType string   `json:"type"`            // параметр, принимающий значение gauge или counter
 }
 
 func NewCollector(c Config) *Collector {
@@ -85,10 +92,8 @@ func (c *Collector) StartTickers() error {
 func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
 	for k, v := range c.counter {
-		mvalue := strconv.FormatInt(v, 10)
 		mtype := "counter"
-
-		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
+		if err := metricPost(Metrics{ID: k, MType: mtype, Delta: &v}, c.config.metricHost); err != nil {
 			return fmt.Errorf("failed http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
@@ -97,32 +102,36 @@ func (c *Collector) sendMetrics() error {
 
 	// Sending gauge metrics
 	for k, v := range c.gauge {
-		mvalue := strconv.FormatFloat(v, 'f', -1, 64)
 		mtype := "gauge"
-
-		if err := metricPost(mtype, k, mvalue, c.config.metricHost); err != nil {
+		if err := metricPost(Metrics{ID: k, MType: mtype, Value: &v}, c.config.metricHost); err != nil {
 			return fmt.Errorf("failed http post for %s metric %s: %w", mtype, k, err)
 		}
 	}
 	return nil
 }
 
-func metricPost(t string, m string, v string, h string) error {
+func metricPost(m Metrics, h string) error {
 	const httpTimeout int = 30
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
 
-	url := fmt.Sprintf("http://%s/update/%s/%s/%s", h, t, m, v)
+	url := fmt.Sprintf("http://%s/update/", h)
+
+	body, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("error encoding JSON response for %s for metric %s: %w", m.MType, m.ID, err)
+	}
 
 	resp, err := client.R().
-		SetHeader("Content-Type", "text/plain").
+		SetHeader("Content-Type", "application/json").
+		SetBody(body).
 		Post(url)
 
 	if err != nil {
 		return fmt.Errorf("error to do http post: %w", err)
 	}
 
-	fmt.Printf("Sent %s metric: %s, Status code: %d\n", t, m, resp.StatusCode())
+	fmt.Printf("Sent %s metric: %s, Status code: %d\n", m.MType, m.ID, resp.StatusCode())
 
 	return nil
 }
