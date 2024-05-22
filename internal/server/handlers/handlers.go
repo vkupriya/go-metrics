@@ -46,7 +46,7 @@ type MetricResource struct {
 	store Storage
 }
 
-var sugar = zap.L()
+var sugar = zap.L().Sugar()
 
 func NewMetricResource(store Storage) *MetricResource {
 	return &MetricResource{store: store}
@@ -147,7 +147,6 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 		}
 		*req.Delta = mr.store.UpdateCounterMetric(mname, *req.Delta)
 	}
-	rw.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(rw)
 	if err := enc.Encode(req); err != nil {
 		sugar.Debug("error encoding JSON response", zap.Error(err))
@@ -171,23 +170,21 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		}
-
 		if _, err := rw.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64))); err != nil {
 			log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
 			http.Error(rw, "", http.StatusInternalServerError)
+			return
 		}
-		return
 
 	case mtype == counter:
 		v, err := mr.store.GetCounterMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
-		} else {
-			if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
-				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
-				http.Error(rw, "", http.StatusInternalServerError)
-			}
+		}
+		if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
+			log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
+			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -236,6 +233,7 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 	enc := json.NewEncoder(rw)
 	if err := enc.Encode(req); err != nil {
 		sugar.Debug("error encoding JSON response", zap.Error(err))
+		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 }
