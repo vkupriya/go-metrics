@@ -23,6 +23,7 @@ func (m *MemStorage) UpdateGaugeMetric(name string, value float64) float64 {
 
 func (m *MemStorage) UpdateCounterMetric(name string, value int64) int64 {
 	m.counter[name] += value
+	fmt.Println("counter: ", name, m.counter[name])
 	return m.counter[name]
 }
 
