@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
-	logger "github.com/vkupriya/go-metrics/internal/server/middleware"
+	mw "github.com/vkupriya/go-metrics/internal/server/middleware"
 	"github.com/vkupriya/go-metrics/internal/server/models"
 )
 
@@ -46,8 +46,6 @@ type MetricResource struct {
 	store Storage
 }
 
-var sugar = zap.L().Sugar()
-
 func NewMetricResource(store Storage) *MetricResource {
 	return &MetricResource{store: store}
 }
@@ -55,9 +53,8 @@ func NewMetricResource(store Storage) *MetricResource {
 func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
-	// r.Use(middleware.Logger)
-	// r.Use(middleware.AllowContentType("text/plain"))
-	r.Use(logger.Logging)
+	r.Use(mw.Logging)
+	r.Use(mw.Compress)
 
 	r.Get("/", mr.GetAllMetrics)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
@@ -113,6 +110,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 
 func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
+	sugar := zap.L().Sugar()
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
 		sugar.Debug("cannot decode request JSON body", zap.Error(err))
@@ -192,6 +190,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 
 func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
+	sugar := zap.L().Sugar()
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
 		sugar.Debug("cannot decode request JSON body", zap.Error(err))
@@ -206,7 +205,6 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 	}
 	mtype := req.MType
 	mname := req.ID
-	fmt.Println(req)
 
 	rw.Header().Set("Content-Type", "application/json")
 

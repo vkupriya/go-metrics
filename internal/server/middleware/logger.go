@@ -1,4 +1,4 @@
-package logger
+package middleware
 
 import (
 	"fmt"
@@ -17,6 +17,7 @@ type (
 	loggingResponseWriter struct {
 		http.ResponseWriter
 		responseData *responseData
+		done         bool
 	}
 )
 
@@ -26,12 +27,19 @@ func (r *loggingResponseWriter) Write(b []byte) (int, error) {
 		return 0, fmt.Errorf("failed to write into http.ResponseWriter: %w", err)
 	}
 	r.responseData.size += size
+	if !r.done {
+		r.responseData.status = http.StatusOK
+		r.done = true
+	}
 	return size, nil
 }
 
 func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
-	r.responseData.status = statusCode
+	if !r.done {
+		r.responseData.status = statusCode
+		r.done = true
+	}
 }
 
 func Logging(h http.Handler) http.Handler {
@@ -47,6 +55,7 @@ func Logging(h http.Handler) http.Handler {
 		lw := loggingResponseWriter{
 			ResponseWriter: w,
 			responseData:   responseData,
+			done:           false,
 		}
 
 		uri := r.RequestURI
@@ -55,7 +64,6 @@ func Logging(h http.Handler) http.Handler {
 		h.ServeHTTP(&lw, r)
 
 		duration := time.Since(start)
-
 		sugar.Infoln(
 			"uri", uri,
 			"method", method,

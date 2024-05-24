@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -121,10 +123,15 @@ func metricPost(m Metrics, h string) error {
 	if err != nil {
 		return fmt.Errorf("error encoding JSON response for %s for metric %s: %w", m.MType, m.ID, err)
 	}
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	w.Write(body)
+	w.Close()
 
 	resp, err := client.R().
 		SetHeader("Content-Type", "application/json").
-		SetBody(body).
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(&gz).
 		Post(url)
 
 	if err != nil {
