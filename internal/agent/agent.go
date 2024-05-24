@@ -125,8 +125,13 @@ func metricPost(m Metrics, h string) error {
 	}
 	var gz bytes.Buffer
 	w := gzip.NewWriter(&gz)
-	w.Write(body)
-	w.Close()
+	_, err = w.Write(body)
+	if err != nil {
+		return fmt.Errorf("failed to write into gzip.NewWriter for %s for metric %s: %w", m.MType, m.ID, err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("failed to close gzip.NewWriter for %s for metric %s: %w", m.MType, m.ID, err)
+	}
 
 	resp, err := client.R().
 		SetHeader("Content-Type", "application/json").

@@ -256,6 +256,7 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	rw.Header().Set("Content-Type", "text/html")
 	if err := t.Execute(rw, allMetrics); err != nil {
 		log.Printf("failed to execute http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
