@@ -1,5 +1,12 @@
 package models
 
+type Config struct {
+	Address         string
+	FileStoragePath string
+	StoreInterval   int64
+	RestoreMetrics  bool
+}
+
 type Metrics struct {
 	Delta *int64   `json:"delta,omitempty"` // value of counter metric
 	Value *float64 `json:"value,omitempty"` // value of gauge metric

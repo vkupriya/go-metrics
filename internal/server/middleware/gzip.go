@@ -13,7 +13,7 @@ import (
 
 const (
 	httpStatusSuccess int    = 300
-	compressionAlgo   string = "gzip" // compression algorythm
+	compressionLib    string = "gzip" // compression algorythm
 )
 
 type compressWriter struct {
@@ -42,7 +42,7 @@ func (c *compressWriter) Write(p []byte) (int, error) {
 
 func (c *compressWriter) WriteHeader(statusCode int) {
 	if statusCode < httpStatusSuccess {
-		c.w.Header().Set("Content-Encoding", compressionAlgo)
+		c.w.Header().Set("Content-Encoding", compressionLib)
 	}
 	c.w.WriteHeader(statusCode)
 }
@@ -91,11 +91,11 @@ func Compress(h http.Handler) http.Handler {
 		sugar := zap.L().Sugar()
 		ow := w
 		acceptEncoding := r.Header.Get("Accept-Encoding")
-		supportsGzip := strings.Contains(acceptEncoding, compressionAlgo)
+		supportsGzip := strings.Contains(acceptEncoding, compressionLib)
 		if supportsGzip {
 			cw := newCompressWriter(w)
 			ow = cw
-			ow.Header().Set("Content-Encoding", compressionAlgo)
+			ow.Header().Set("Content-Encoding", compressionLib)
 			defer func() {
 				if err := cw.Close(); err != nil {
 					sugar.Error(err)
@@ -104,7 +104,7 @@ func Compress(h http.Handler) http.Handler {
 			}()
 		}
 		contentEncoding := r.Header.Get("Content-Encoding")
-		sendsGzip := strings.Contains(contentEncoding, compressionAlgo)
+		sendsGzip := strings.Contains(contentEncoding, compressionLib)
 		if sendsGzip {
 			cr, err := newCompressReader(r.Body)
 			if err != nil {

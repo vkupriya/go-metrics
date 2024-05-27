@@ -43,11 +43,14 @@ const (
 )
 
 type MetricResource struct {
-	store Storage
+	store  Storage
+	config *models.Config
 }
 
-func NewMetricResource(store Storage) *MetricResource {
-	return &MetricResource{store: store}
+func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
+	return &MetricResource{
+		store:  store,
+		config: cfg}
 }
 
 func NewMetricRouter(mr *MetricResource) chi.Router {
