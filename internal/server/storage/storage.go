@@ -18,7 +18,7 @@ var (
 	FileStoragePath string
 	RestoreMetrics              = false
 	SyncFileStore               = false
-	FilePermissions fs.FileMode = 0600
+	FilePermissions fs.FileMode = 0o600
 	FileExists                  = false
 )
 
@@ -62,8 +62,8 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 
 	if RestoreMetrics && FileExists {
 		var data struct {
-			Gauge   *map[string]float64
-			Counter *map[string]int64
+			Gauge   *map[string]float64 `json:"gauge"`
+			Counter *map[string]int64   `json:"counter"`
 		}
 
 		err := json.NewDecoder(file).Decode(&data)
