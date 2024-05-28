@@ -69,6 +69,8 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 }
 
 func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
 	mtype := chi.URLParam(r, "metricType")
 	mname := chi.URLParam(r, "metricName")
 	mvalue := chi.URLParam(r, "metricValue")
@@ -95,7 +97,10 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.store.UpdateGaugeMetric(mr.config, mname, mv)
+			_, err = mr.store.UpdateGaugeMetric(mr.config, mname, mv)
+			if err != nil {
+				logger.Sugar().Error("failed to update gauge metric", err)
+			}
 			rw.WriteHeader(http.StatusOK)
 
 		case mtype == counter:
@@ -104,7 +109,10 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.store.UpdateCounterMetric(mr.config, mname, mv)
+			_, err = mr.store.UpdateCounterMetric(mr.config, mname, mv)
+			if err != nil {
+				logger.Sugar().Error("failed to update counter metric", err)
+			}
 			rw.WriteHeader(http.StatusOK)
 		}
 		return

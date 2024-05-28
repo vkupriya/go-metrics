@@ -5,11 +5,11 @@ import (
 )
 
 type Config struct {
+	Logger          *zap.Logger
 	Address         string
 	FileStoragePath string
 	StoreInterval   int64
 	RestoreMetrics  bool
-	Logger          *zap.Logger
 }
 
 type Metrics struct {

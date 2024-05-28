@@ -11,7 +11,6 @@ import (
 )
 
 func Start() {
-
 	cfg, err := config.NewConfig()
 	if err != nil {
 		log.Fatal(zap.Error(err))
