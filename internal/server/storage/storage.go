@@ -86,13 +86,15 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 			)
 		}
 	}
-	if StoreInterval != 0 {
-		logger.Sugar().Info("starting ticker to save metrics to file")
-	}
-	return &MemStorage{
+
+	mr := &MemStorage{
 		gauge:   gauge,
 		counter: counter,
-	}, nil
+	}
+	if StoreInterval != 0 {
+		go mr.SaveMetricsTicker(c)
+	}
+	return mr, nil
 }
 
 func (m *MemStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {

@@ -23,10 +23,6 @@ func Start() {
 	logger := cfg.Logger
 
 	mr := handlers.NewMetricResource(s, cfg)
-	if cfg.StoreInterval != 0 {
-		logger.Info("starting ticker to save metrics to file")
-		s.SaveMetricsTicker(cfg)
-	}
 
 	r := handlers.NewMetricRouter(mr)
 

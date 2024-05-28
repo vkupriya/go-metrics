@@ -2,126 +2,66 @@ package middleware
 
 import (
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
-
-	"go.uber.org/zap"
 )
 
 const (
-	httpStatusSuccess int    = 300
-	compressionLib    string = "gzip" // compression algorythm
+	compressionLib string = "gzip" // compression algorythm
 )
 
-type compressWriter struct {
-	w  http.ResponseWriter
-	zw *gzip.Writer
+type gzipWriter struct {
+	http.ResponseWriter
+	Writer io.Writer
 }
 
-func newCompressWriter(w http.ResponseWriter) *compressWriter {
-	return &compressWriter{
-		w:  w,
-		zw: gzip.NewWriter(w),
-	}
-}
-
-func (c *compressWriter) Header() http.Header {
-	return c.w.Header()
-}
-
-func (c *compressWriter) Write(p []byte) (int, error) {
-	b, err := c.zw.Write(p)
+func (w gzipWriter) Write(b []byte) (int, error) {
+	size, err := w.Writer.Write(b)
 	if err != nil {
-		return 0, fmt.Errorf("failed to write into gzip.Writer`: %w", err)
+		log.Printf("error in writing with gzip writer.")
+		return 0, fmt.Errorf("error in writing with gzip writer: %w", err)
 	}
-	return b, nil
+	return size, nil
 }
 
-func (c *compressWriter) WriteHeader(statusCode int) {
-	if statusCode < httpStatusSuccess {
-		c.w.Header().Set("Content-Encoding", compressionLib)
-	}
-	c.w.WriteHeader(statusCode)
-}
-
-func (c *compressWriter) Close() error {
-	if err := c.zw.Close(); err != nil {
-		return fmt.Errorf("failed to close gzip.Writer: %w", err)
-	}
-	return nil
-}
-
-type compressReader struct {
-	r  io.ReadCloser
-	zr *gzip.Reader
-}
-
-func newCompressReader(r io.ReadCloser) (*compressReader, error) {
-	zr, err := gzip.NewReader(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gzip.NewReader: %w", err)
-	}
-
-	return &compressReader{
-		r:  r,
-		zr: zr,
-	}, nil
-}
-
-func (c *compressReader) Read(p []byte) (n int, err error) {
-	b, err := c.zr.Read(p)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return 0, fmt.Errorf("failed to read with gzip.Reader`: %w", err)
-	}
-	return b, nil
-}
-
-func (c *compressReader) Close() error {
-	if err := c.r.Close(); err != nil {
-		return fmt.Errorf("failed to close gzip.Reader: %w", err)
-	}
-	return nil
-}
-
-func Compress(h http.Handler) http.Handler {
-	compr := func(w http.ResponseWriter, r *http.Request) {
-		sugar := zap.L().Sugar()
-		ow := w
-		acceptEncoding := r.Header.Get("Accept-Encoding")
-		supportsGzip := strings.Contains(acceptEncoding, compressionLib)
-		if supportsGzip {
-			cw := newCompressWriter(w)
-			ow = cw
-			ow.Header().Set("Content-Encoding", compressionLib)
-			defer func() {
-				if err := cw.Close(); err != nil {
-					sugar.Error(err)
-					w.WriteHeader(http.StatusInternalServerError)
-				}
-			}()
-		}
+func GzipHandle(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		contentEncoding := r.Header.Get("Content-Encoding")
 		sendsGzip := strings.Contains(contentEncoding, compressionLib)
 		if sendsGzip {
-			cr, err := newCompressReader(r.Body)
+			gr, err := gzip.NewReader(r.Body)
 			if err != nil {
-				sugar.Debug(err)
-				w.WriteHeader(http.StatusInternalServerError)
+				http.Error(w, "", http.StatusInternalServerError)
 				return
 			}
-			r.Body = cr
+			r.Body = gr
 			defer func() {
-				if err := cr.Close(); err != nil {
-					sugar.Error(err)
-					w.WriteHeader(http.StatusInternalServerError)
+				if err := gr.Close(); err != nil {
+					log.Println(err)
+					http.Error(w, "", http.StatusInternalServerError)
 				}
 			}()
 		}
 
-		h.ServeHTTP(ow, r)
-	}
-	return http.HandlerFunc(compr)
+		supportsGzip := strings.Contains(r.Header.Get("Accept-Encoding"), compressionLib)
+		if supportsGzip {
+			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+			if err != nil {
+				log.Println("error creating gzip writer.")
+			}
+			w.Header().Set("Content-Encoding", compressionLib)
+			defer func() {
+				if err := gz.Close(); err != nil {
+					log.Println(err)
+					http.Error(w, "", http.StatusInternalServerError)
+				}
+			}()
+			h.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+		} else {
+			h.ServeHTTP(w, r)
+		}
+	})
 }

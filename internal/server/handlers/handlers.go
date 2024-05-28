@@ -57,7 +57,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(mw.Logging)
-	r.Use(mw.Compress)
+	r.Use(mw.GzipHandle)
 
 	r.Get("/", mr.GetAllMetrics)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
