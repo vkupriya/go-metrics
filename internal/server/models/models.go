@@ -1,10 +1,15 @@
 package models
 
+import (
+	"go.uber.org/zap"
+)
+
 type Config struct {
 	Address         string
 	FileStoragePath string
 	StoreInterval   int64
 	RestoreMetrics  bool
+	Logger          *zap.Logger
 }
 
 type Metrics struct {

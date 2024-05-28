@@ -3,8 +3,11 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
+
+	"go.uber.org/zap"
 
 	"github.com/vkupriya/go-metrics/internal/server/models"
 )
@@ -45,10 +48,17 @@ func NewConfig() (*models.Config, error) {
 		r = &envRestore
 	}
 
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize Logger: %w", err)
+	}
+
 	return &models.Config{
 		Address:         *a,
 		StoreInterval:   *i,
 		FileStoragePath: *p,
 		RestoreMetrics:  *r,
+		Logger:          logger,
 	}, nil
 }

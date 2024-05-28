@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
+
 	"net/http"
 	"strconv"
 
@@ -30,8 +30,8 @@ const tmpl string = `
 `
 
 type Storage interface {
-	UpdateGaugeMetric(name string, value float64) float64
-	UpdateCounterMetric(name string, value int64) int64
+	UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error)
+	UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error)
 	GetCounterMetric(name string) (int64, error)
 	GetGaugeMetric(name string) (float64, error)
 	GetAllValues() (map[string]float64, map[string]int64)
@@ -95,7 +95,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.store.UpdateGaugeMetric(mname, mv)
+			mr.store.UpdateGaugeMetric(mr.config, mname, mv)
 			rw.WriteHeader(http.StatusOK)
 
 		case mtype == counter:
@@ -104,7 +104,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.store.UpdateCounterMetric(mname, mv)
+			mr.store.UpdateCounterMetric(mr.config, mname, mv)
 			rw.WriteHeader(http.StatusOK)
 		}
 		return
@@ -113,16 +113,17 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 
 func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
-	sugar := zap.L().Sugar()
+	logger := mr.config.Logger
+
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
-		sugar.Debug("cannot decode request JSON body", zap.Error(err))
+		logger.Sugar().Debug("cannot decode request JSON body", zap.Error(err))
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	if req.MType != "counter" && req.MType != "gauge" {
-		sugar.Debug("unsupported metric type", zap.String("type", req.MType))
+		logger.Sugar().Debug("unsupported metric type", zap.String("type", req.MType))
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -134,28 +135,38 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 	switch {
 	case mtype == gauge:
 		if req.Value == nil {
-			sugar.Debug("request contains empty value for metric", zap.String("id", req.ID))
+			logger.Sugar().Debug("request contains empty value for metric", zap.String("id", req.ID))
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		*req.Value = mr.store.UpdateGaugeMetric(mname, *req.Value)
+		rv, err := mr.store.UpdateGaugeMetric(mr.config, mname, *req.Value)
+		if err != nil {
+			logger.Sugar().Error("failed to update gauge metric", err)
+		}
+		*req.Value = rv
 
 	case mtype == counter:
 		if req.Delta == nil {
-			sugar.Debug("request contains empty value for metric", zap.String("id", req.ID))
+			logger.Sugar().Debug("request contains empty value for metric", zap.String("id", req.ID))
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		*req.Delta = mr.store.UpdateCounterMetric(mname, *req.Delta)
+		rd, err := mr.store.UpdateCounterMetric(mr.config, mname, *req.Delta)
+		if err != nil {
+			logger.Sugar().Error("failed to update counter metric", err)
+		}
+		*req.Delta = rd
 	}
 	enc := json.NewEncoder(rw)
 	if err := enc.Encode(req); err != nil {
-		sugar.Debug("error encoding JSON response", zap.Error(err))
+		logger.Sugar().Debug("error encoding JSON response", zap.Error(err))
 		return
 	}
 }
 
 func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
 	mtype := chi.URLParam(r, "metricType")
 	mname := chi.URLParam(r, "metricName")
 
@@ -172,7 +183,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := rw.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64))); err != nil {
-			log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
+			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, err)
 			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
@@ -184,7 +195,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
-			log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
+			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, err)
 			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
@@ -193,16 +204,17 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 
 func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request) {
 	var req models.Metrics
-	sugar := zap.L().Sugar()
+	logger := mr.config.Logger
+
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
-		sugar.Debug("cannot decode request JSON body", zap.Error(err))
+		logger.Sugar().Error("cannot decode request JSON body", zap.Error(err))
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	if req.MType != "counter" && req.MType != "gauge" {
-		sugar.Debug("unsupported metric type", zap.String("type", req.MType))
+		logger.Sugar().Error("unsupported metric type", zap.String("type", req.MType))
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -233,13 +245,15 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 	rw.WriteHeader(http.StatusOK)
 	enc := json.NewEncoder(rw)
 	if err := enc.Encode(req); err != nil {
-		sugar.Debug("error encoding JSON response", zap.Error(err))
+		logger.Sugar().Debug("error encoding JSON response", zap.Error(err))
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 }
 
 func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
 	gauge, counter := mr.store.GetAllValues()
 
 	allMetrics := make(map[string]any)
@@ -254,14 +268,14 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 	t, err := template.New("tmpl").Parse(tmpl)
 	if err != nil {
-		log.Printf("failed to load http template: %v", err)
+		logger.Sugar().Errorf("failed to load http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
 
 	rw.Header().Set("Content-Type", "text/html")
 	if err := t.Execute(rw, allMetrics); err != nil {
-		log.Printf("failed to execute http template: %v", err)
+		logger.Sugar().Errorf("failed to execute http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}

@@ -28,7 +28,7 @@ type MemStorage struct {
 }
 
 func NewMemStorage(c *models.Config) (*MemStorage, error) {
-	sugar := zap.L().Sugar()
+	logger := c.Logger
 
 	gauge := make(map[string]float64)
 	counter := make(map[string]int64)
@@ -50,13 +50,13 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 	file, err := os.OpenFile(FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
 
 	if err != nil {
-		sugar.Error("File open error", zap.Error(err))
+		logger.Error("File open error", zap.Error(err))
 		return nil, fmt.Errorf("failed to create metrics db file %s", FileStoragePath)
 	}
 
 	defer func() {
 		if err := file.Close(); err != nil {
-			sugar.Error(err)
+			logger.Sugar().Error(err)
 		}
 	}()
 
@@ -68,7 +68,7 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 
 		err := json.NewDecoder(file).Decode(&data)
 		if err != nil && !errors.Is(err, io.EOF) {
-			zap.L().Error(`File decode error`, zap.Error(err))
+			logger.Sugar().Error(`File decode error`, zap.Error(err))
 		}
 
 		if data.Gauge != nil {
@@ -79,44 +79,42 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 		}
 
 		if len(gauge) > 0 || len(counter) > 0 {
-			zap.L().Info(
+			logger.Sugar().Infow(
 				"MemStorage restored",
 				zap.Int("Gauge", len(gauge)),
 				zap.Int("Counter", len(counter)),
 			)
 		}
 	}
-
+	if StoreInterval != 0 {
+		logger.Sugar().Info("starting ticker to save metrics to file")
+	}
 	return &MemStorage{
 		gauge:   gauge,
 		counter: counter,
 	}, nil
 }
 
-func (m *MemStorage) UpdateGaugeMetric(name string, value float64) float64 {
-	sugar := zap.L().Sugar()
-
+func (m *MemStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
 	m.gauge[name] = value
 	if SyncFileStore {
-		err := m.SaveMetricsToFile()
+		err := m.SaveMetrics(c)
 		if err != nil {
-			sugar.Error("failed to save metrics to file", zap.Error(err))
+			return 0, fmt.Errorf("failed to save metrics to file: %w", err)
 		}
 	}
-	return m.gauge[name]
+	return m.gauge[name], nil
 }
 
-func (m *MemStorage) UpdateCounterMetric(name string, value int64) int64 {
-	sugar := zap.L().Sugar()
-
+func (m *MemStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
 	m.counter[name] += value
 	if SyncFileStore {
-		err := m.SaveMetricsToFile()
+		err := m.SaveMetrics(c)
 		if err != nil {
-			sugar.Error("failed to save metrics to file", zap.Error(err))
+			return 0, fmt.Errorf("failed to save metrics to file: %w", err)
 		}
 	}
-	return m.counter[name]
+	return m.counter[name], nil
 }
 
 func (m *MemStorage) GetCounterMetric(name string) (int64, error) {
@@ -139,9 +137,9 @@ func (m *MemStorage) GetAllValues() (map[string]float64, map[string]int64) {
 	return m.gauge, m.counter
 }
 
-func (m *MemStorage) SaveMetricsToFile() error {
-	sugar := zap.L().Sugar()
-	sugar.Info("Saving metrics to file db.")
+func (m *MemStorage) SaveMetrics(c *models.Config) error {
+	logger := c.Logger
+	logger.Sugar().Info("Saving metrics to file db.")
 
 	_, err := os.Stat(FileStoragePath)
 	if err != nil {
@@ -150,12 +148,12 @@ func (m *MemStorage) SaveMetricsToFile() error {
 
 	file, err := os.OpenFile(FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
 	if err != nil {
-		sugar.Error(zap.Error(err))
+		logger.Sugar().Error(zap.Error(err))
 		return fmt.Errorf("failed to open file %s: %w", FileStoragePath, err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			sugar.Error(err)
+			logger.Sugar().Error(err)
 		}
 	}()
 
@@ -164,7 +162,7 @@ func (m *MemStorage) SaveMetricsToFile() error {
 	data["counter"] = m.counter
 
 	if err := json.NewEncoder(file).Encode(data); err != nil {
-		sugar.Error("File encode error", zap.Error(err))
+		logger.Sugar().Error("File encode error", zap.Error(err))
 		return fmt.Errorf("failed to json encode data: %w", err)
 	}
 
@@ -172,13 +170,14 @@ func (m *MemStorage) SaveMetricsToFile() error {
 	return nil
 }
 
-func (m *MemStorage) SaveToFileTicker() {
+func (m *MemStorage) SaveMetricsTicker(c *models.Config) {
 	if SyncFileStore {
 		return
 	}
 
-	zap.L().Info(
-		`MemStorage's tickers started`,
+	logger := c.Logger
+	logger.Sugar().Infow(
+		`MemStorage's ticker started`,
 		zap.Int64(`StoreInterval`, StoreInterval),
 	)
 
@@ -186,8 +185,8 @@ func (m *MemStorage) SaveToFileTicker() {
 
 	go func() {
 		for range saveTicker.C {
-			if err := m.SaveMetricsToFile(); err != nil {
-				zap.L().Error("failed to save metrics to file using ticker", zap.Error(err))
+			if err := m.SaveMetrics(c); err != nil {
+				logger.Sugar().Error("failed to save metrics to file using ticker", zap.Error(err))
 				return
 			}
 		}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/vkupriya/go-metrics/internal/server/config"
@@ -10,32 +11,31 @@ import (
 )
 
 func Start() {
-	zap.ReplaceGlobals(zap.Must(zap.NewDevelopment()))
-	sugar := zap.L().Sugar()
 
 	cfg, err := config.NewConfig()
 	if err != nil {
-		sugar.Fatal(zap.Error(err))
+		log.Fatal(zap.Error(err))
 	}
 
 	s, err := storage.NewMemStorage(cfg)
 	if err != nil {
-		sugar.Fatal(zap.Error(err))
+		log.Fatal(zap.Error(err))
 	}
+	logger := cfg.Logger
 
 	mr := handlers.NewMetricResource(s, cfg)
 	if cfg.StoreInterval != 0 {
-		sugar.Info("starting ticker to save metrics to file")
-		s.SaveToFileTicker()
+		logger.Info("starting ticker to save metrics to file")
+		s.SaveMetricsTicker(cfg)
 	}
 
 	r := handlers.NewMetricRouter(mr)
 
-	sugar.Infow(
+	logger.Sugar().Infow(
 		"Starting server",
 		"addr", cfg.Address,
 	)
 	if err := http.ListenAndServe(cfg.Address, r); err != nil {
-		sugar.Fatalw(err.Error(), "event", "start server")
+		logger.Sugar().Fatalw(err.Error(), "event", "start server")
 	}
 }
