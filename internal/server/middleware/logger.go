@@ -19,7 +19,17 @@ type (
 		responseData *responseData
 		done         bool
 	}
+
+	MiddlewareLogger struct {
+		logger *zap.Logger
+	}
 )
+
+func NewMiddlewareLogger(l *zap.Logger) *MiddlewareLogger {
+	return &MiddlewareLogger{
+		logger: l,
+	}
+}
 
 func (r *loggingResponseWriter) Write(b []byte) (int, error) {
 	size, err := r.ResponseWriter.Write(b)
@@ -42,9 +52,9 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	}
 }
 
-func Logging(h http.Handler) http.Handler {
+func (l *MiddlewareLogger) Logging(h http.Handler) http.Handler {
 	logFn := func(w http.ResponseWriter, r *http.Request) {
-		logger, _ := zap.NewDevelopment()
+		logger := l.logger
 
 		start := time.Now()
 

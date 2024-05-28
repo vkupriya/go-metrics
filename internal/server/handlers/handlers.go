@@ -56,8 +56,9 @@ func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
 func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
-	r.Use(mw.Logging)
-	r.Use(mw.GzipHandle)
+	wr := mw.NewMiddlewareLogger(mr.config.Logger)
+	r.Use(wr.Logging)
+	r.Use(wr.GzipHandle)
 
 	r.Get("/", mr.GetAllMetrics)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)

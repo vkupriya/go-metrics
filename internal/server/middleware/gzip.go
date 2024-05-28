@@ -27,8 +27,9 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	return size, nil
 }
 
-func GzipHandle(h http.Handler) http.Handler {
+func (l *MiddlewareLogger) GzipHandle(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := l.logger
 		contentEncoding := r.Header.Get("Content-Encoding")
 		sendsGzip := strings.Contains(contentEncoding, compressionLib)
 		if sendsGzip {
@@ -40,7 +41,7 @@ func GzipHandle(h http.Handler) http.Handler {
 			r.Body = gr
 			defer func() {
 				if err := gr.Close(); err != nil {
-					log.Println(err)
+					logger.Sugar().Error(err)
 					http.Error(w, "", http.StatusInternalServerError)
 				}
 			}()
@@ -50,12 +51,12 @@ func GzipHandle(h http.Handler) http.Handler {
 		if supportsGzip {
 			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 			if err != nil {
-				log.Println("error creating gzip writer.")
+				logger.Sugar().Error("error creating gzip writer.")
 			}
 			w.Header().Set("Content-Encoding", compressionLib)
 			defer func() {
 				if err := gz.Close(); err != nil {
-					log.Println(err)
+					logger.Sugar().Error(err)
 					http.Error(w, "", http.StatusInternalServerError)
 				}
 			}()
