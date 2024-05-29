@@ -6,7 +6,6 @@ import (
 
 	"github.com/vkupriya/go-metrics/internal/server/config"
 	"github.com/vkupriya/go-metrics/internal/server/handlers"
-	"github.com/vkupriya/go-metrics/internal/server/storage"
 
 	"go.uber.org/zap"
 )
@@ -16,12 +15,12 @@ func Start() {
 	if err != nil {
 		log.Fatal(zap.Error(err))
 	}
-
-	s, err := storage.NewMemStorage(cfg)
-	if err != nil {
-		log.Fatal(zap.Error(err))
-	}
 	logger := cfg.Logger
+
+	s, err := handlers.NewStore(cfg)
+	if err != nil {
+		logger.Sugar().Fatal(err)
+	}
 
 	mr := handlers.NewMetricResource(s, cfg)
 

@@ -13,6 +13,7 @@ import (
 
 	mw "github.com/vkupriya/go-metrics/internal/server/middleware"
 	"github.com/vkupriya/go-metrics/internal/server/models"
+	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
 const tmpl string = `
@@ -45,6 +46,21 @@ const (
 type MetricResource struct {
 	store  Storage
 	config *models.Config
+}
+
+func NewStore(c *models.Config) (Storage, error) {
+	if c.FileStoragePath != "" {
+		fs, err := storage.NewFileStorage(c)
+		if err != nil {
+			return fs, fmt.Errorf("failed to initialize FileStorage: %w", err)
+		}
+		return fs, nil
+	}
+	ms, err := storage.NewMemStorage(c)
+	if err != nil {
+		return ms, fmt.Errorf("failed to initialize MemStorage: %w", err)
+	}
+	return ms, nil
 }
 
 func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
@@ -132,7 +148,6 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 	}
 
 	if req.MType != "counter" && req.MType != "gauge" {
-		logger.Sugar().Debug("unsupported metric type", zap.String("type", req.MType))
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -144,7 +159,6 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 	switch {
 	case mtype == gauge:
 		if req.Value == nil {
-			logger.Sugar().Debug("request contains empty value for metric", zap.String("id", req.ID))
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -156,7 +170,6 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 
 	case mtype == counter:
 		if req.Delta == nil {
-			logger.Sugar().Debug("request contains empty value for metric", zap.String("id", req.ID))
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}

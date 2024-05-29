@@ -4,7 +4,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 )
@@ -21,7 +20,6 @@ type gzipWriter struct {
 func (w gzipWriter) Write(b []byte) (int, error) {
 	size, err := w.Writer.Write(b)
 	if err != nil {
-		log.Printf("error in writing with gzip writer.")
 		return 0, fmt.Errorf("error in writing with gzip writer: %w", err)
 	}
 	return size, nil
@@ -34,17 +32,18 @@ func (l *MiddlewareLogger) GzipHandle(h http.Handler) http.Handler {
 		sendsGzip := strings.Contains(contentEncoding, compressionLib)
 		if sendsGzip {
 			gr, err := gzip.NewReader(r.Body)
-			if err != nil {
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
-			r.Body = gr
 			defer func() {
 				if err := gr.Close(); err != nil {
 					logger.Sugar().Error(err)
 					http.Error(w, "", http.StatusInternalServerError)
 				}
 			}()
+			if err != nil {
+				logger.Sugar().Error(err)
+				http.Error(w, "", http.StatusInternalServerError)
+				return
+			}
+			r.Body = gr
 		}
 
 		supportsGzip := strings.Contains(r.Header.Get("Accept-Encoding"), compressionLib)

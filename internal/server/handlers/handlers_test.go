@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,11 +29,11 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string) *http.R
 func TestUpdateMetric(t *testing.T) {
 	cfg, err := config.NewConfig()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	s, err := storage.NewMemStorage(cfg)
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	mr := NewMetricResource(s, cfg)
 

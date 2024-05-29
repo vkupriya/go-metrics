@@ -13,45 +13,42 @@ import (
 	"go.uber.org/zap"
 )
 
-var (
-	StoreInterval   int64
-	FileStoragePath string
-	RestoreMetrics              = false
-	SyncFileStore               = false
-	FilePermissions fs.FileMode = 0o600
-	FileExists                  = false
-)
-
 type MemStorage struct {
 	gauge   map[string]float64
 	counter map[string]int64
 }
 
+type FileStorage struct {
+	*MemStorage
+}
+
 func NewMemStorage(c *models.Config) (*MemStorage, error) {
+	return &MemStorage{
+		gauge:   make(map[string]float64),
+		counter: make(map[string]int64),
+	}, nil
+}
+
+func NewFileStorage(c *models.Config) (*FileStorage, error) {
 	logger := c.Logger
+
+	var FilePermissions fs.FileMode = 0o600
+	var FileExists bool = false
 
 	gauge := make(map[string]float64)
 	counter := make(map[string]int64)
 
-	StoreInterval = c.StoreInterval
-	FileStoragePath = c.FileStoragePath
-	RestoreMetrics = c.RestoreMetrics
-
-	if c.StoreInterval == 0 {
-		SyncFileStore = true
-	}
-
 	// Checking if file exists
-	_, err := os.Stat(FileStoragePath)
+	_, err := os.Stat(c.FileStoragePath)
 	if err == nil {
 		FileExists = true
 	}
 
-	file, err := os.OpenFile(FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
+	file, err := os.OpenFile(c.FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
 
 	if err != nil {
 		logger.Error("File open error", zap.Error(err))
-		return nil, fmt.Errorf("failed to create metrics db file %s", FileStoragePath)
+		return nil, fmt.Errorf("failed to create metrics db file %s", c.FileStoragePath)
 	}
 
 	defer func() {
@@ -60,7 +57,7 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 		}
 	}()
 
-	if RestoreMetrics && FileExists {
+	if c.RestoreMetrics && FileExists {
 		var data struct {
 			Gauge   *map[string]float64 `json:"gauge"`
 			Counter *map[string]int64   `json:"counter"`
@@ -87,35 +84,25 @@ func NewMemStorage(c *models.Config) (*MemStorage, error) {
 		}
 	}
 
-	mr := &MemStorage{
-		gauge:   gauge,
-		counter: counter,
+	f := &FileStorage{
+		&MemStorage{
+			gauge:   gauge,
+			counter: counter,
+		}}
+
+	if c.StoreInterval != 0 {
+		go f.SaveMetricsTicker(c)
 	}
-	if StoreInterval != 0 {
-		go mr.SaveMetricsTicker(c)
-	}
-	return mr, nil
+	return f, nil
 }
 
 func (m *MemStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
 	m.gauge[name] = value
-	if SyncFileStore {
-		err := m.SaveMetrics(c)
-		if err != nil {
-			return 0, fmt.Errorf("failed to save metrics to file: %w", err)
-		}
-	}
 	return m.gauge[name], nil
 }
 
 func (m *MemStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
 	m.counter[name] += value
-	if SyncFileStore {
-		err := m.SaveMetrics(c)
-		if err != nil {
-			return 0, fmt.Errorf("failed to save metrics to file: %w", err)
-		}
-	}
 	return m.counter[name], nil
 }
 
@@ -139,19 +126,62 @@ func (m *MemStorage) GetAllValues() (map[string]float64, map[string]int64) {
 	return m.gauge, m.counter
 }
 
-func (m *MemStorage) SaveMetrics(c *models.Config) error {
+func (f *FileStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
+	f.gauge[name] = value
+	if c.StoreInterval == 0 {
+		err := f.SaveMetrics(c)
+		if err != nil {
+			return 0, fmt.Errorf("failed to save metrics to file: %w", err)
+		}
+	}
+	return f.gauge[name], nil
+}
+
+func (f *FileStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
+	f.counter[name] += value
+	if c.StoreInterval == 0 {
+		err := f.SaveMetrics(c)
+		if err != nil {
+			return 0, fmt.Errorf("failed to save metrics to file: %w", err)
+		}
+	}
+	return f.counter[name], nil
+}
+
+func (f *FileStorage) GetCounterMetric(name string) (int64, error) {
+	v, ok := f.counter[name]
+	if ok {
+		return v, nil
+	}
+	return v, fmt.Errorf("unknown counter metric %s ", name)
+}
+
+func (f *FileStorage) GetGaugeMetric(name string) (float64, error) {
+	v, ok := f.gauge[name]
+	if ok {
+		return v, nil
+	}
+	return v, fmt.Errorf("unknown gauge metric %s ", name)
+}
+
+func (f *FileStorage) GetAllValues() (map[string]float64, map[string]int64) {
+	return f.gauge, f.counter
+}
+
+func (f *FileStorage) SaveMetrics(c *models.Config) error {
 	logger := c.Logger
 	logger.Sugar().Info("Saving metrics to file db.")
+	var FilePermissions fs.FileMode = 0o600
 
-	_, err := os.Stat(FileStoragePath)
+	_, err := os.Stat(c.FileStoragePath)
 	if err != nil {
 		zap.L().Warn("File doesn't exist")
 	}
 
-	file, err := os.OpenFile(FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
+	file, err := os.OpenFile(c.FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
 	if err != nil {
 		logger.Sugar().Error(zap.Error(err))
-		return fmt.Errorf("failed to open file %s: %w", FileStoragePath, err)
+		return fmt.Errorf("failed to open file %s: %w", c.FileStoragePath, err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -160,8 +190,8 @@ func (m *MemStorage) SaveMetrics(c *models.Config) error {
 	}()
 
 	data := make(map[string]any)
-	data["gauge"] = m.gauge
-	data["counter"] = m.counter
+	data["gauge"] = f.gauge
+	data["counter"] = f.counter
 
 	if err := json.NewEncoder(file).Encode(data); err != nil {
 		logger.Sugar().Error("File encode error", zap.Error(err))
@@ -172,22 +202,22 @@ func (m *MemStorage) SaveMetrics(c *models.Config) error {
 	return nil
 }
 
-func (m *MemStorage) SaveMetricsTicker(c *models.Config) {
-	if SyncFileStore {
+func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
+	if c.StoreInterval == 0 {
 		return
 	}
 
 	logger := c.Logger
 	logger.Sugar().Infow(
 		`MemStorage's ticker started`,
-		zap.Int64(`StoreInterval`, StoreInterval),
+		zap.Int64(`StoreInterval`, c.StoreInterval),
 	)
 
-	saveTicker := time.NewTicker(time.Duration(StoreInterval) * time.Second)
+	saveTicker := time.NewTicker(time.Duration(c.StoreInterval) * time.Second)
 
 	go func() {
 		for range saveTicker.C {
-			if err := m.SaveMetrics(c); err != nil {
+			if err := f.SaveMetrics(c); err != nil {
 				logger.Sugar().Error("failed to save metrics to file using ticker", zap.Error(err))
 				return
 			}

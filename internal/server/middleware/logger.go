@@ -37,19 +37,12 @@ func (r *loggingResponseWriter) Write(b []byte) (int, error) {
 		return 0, fmt.Errorf("failed to write into http.ResponseWriter: %w", err)
 	}
 	r.responseData.size += size
-	if !r.done {
-		r.responseData.status = http.StatusOK
-		r.done = true
-	}
 	return size, nil
 }
 
 func (r *loggingResponseWriter) WriteHeader(statusCode int) {
-	if !r.done {
-		r.ResponseWriter.WriteHeader(statusCode)
-		r.responseData.status = statusCode
-		r.done = true
-	}
+	r.ResponseWriter.WriteHeader(statusCode)
+	r.responseData.status = statusCode
 }
 
 func (l *MiddlewareLogger) Logging(h http.Handler) http.Handler {
@@ -59,7 +52,7 @@ func (l *MiddlewareLogger) Logging(h http.Handler) http.Handler {
 		start := time.Now()
 
 		responseData := &responseData{
-			status: 0,
+			status: http.StatusOK,
 			size:   0,
 		}
 
