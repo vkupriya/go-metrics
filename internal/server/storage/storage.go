@@ -33,7 +33,7 @@ func NewFileStorage(c *models.Config) (*FileStorage, error) {
 	logger := c.Logger
 
 	var FilePermissions fs.FileMode = 0o600
-	var FileExists bool = false
+	var FileExists = false
 
 	gauge := make(map[string]float64)
 	counter := make(map[string]int64)
