@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/vkupriya/go-metrics/internal/server/models"
 )
 
 type (
@@ -21,13 +21,13 @@ type (
 	}
 
 	MiddlewareLogger struct {
-		logger *zap.Logger
+		config *models.Config
 	}
 )
 
-func NewMiddlewareLogger(l *zap.Logger) *MiddlewareLogger {
+func NewMiddlewareLogger(c *models.Config) *MiddlewareLogger {
 	return &MiddlewareLogger{
-		logger: l,
+		config: c,
 	}
 }
 
@@ -45,9 +45,9 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode
 }
 
-func (l *MiddlewareLogger) Logging(h http.Handler) http.Handler {
+func (m *MiddlewareLogger) Logging(h http.Handler) http.Handler {
 	logFn := func(w http.ResponseWriter, r *http.Request) {
-		logger := l.logger
+		logger := m.config.Logger
 
 		start := time.Now()
 

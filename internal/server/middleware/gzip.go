@@ -6,11 +6,23 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/vkupriya/go-metrics/internal/server/models"
 )
 
 const (
 	compressionLib string = "gzip" // compression algorythm
 )
+
+type MiddlewareGzip struct {
+	config *models.Config
+}
+
+func NewMiddlewareGzip(c *models.Config) *MiddlewareGzip {
+	return &MiddlewareGzip{
+		config: c,
+	}
+}
 
 type gzipWriter struct {
 	http.ResponseWriter
@@ -25,9 +37,9 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	return size, nil
 }
 
-func (l *MiddlewareLogger) GzipHandle(h http.Handler) http.Handler {
+func (l *MiddlewareGzip) GzipHandle(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger := l.logger
+		logger := l.config.Logger
 		contentEncoding := r.Header.Get("Content-Encoding")
 		sendsGzip := strings.Contains(contentEncoding, compressionLib)
 		if sendsGzip {
@@ -48,6 +60,7 @@ func (l *MiddlewareLogger) GzipHandle(h http.Handler) http.Handler {
 
 		supportsGzip := strings.Contains(r.Header.Get("Accept-Encoding"), compressionLib)
 		if supportsGzip {
+			logger.Sugar().Info("performing gzip compression")
 			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 			if err != nil {
 				logger.Sugar().Error("error creating gzip writer.")
