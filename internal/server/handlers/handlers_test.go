@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vkupriya/go-metrics/internal/server/config"
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
@@ -26,8 +27,15 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string) *http.R
 }
 
 func TestUpdateMetric(t *testing.T) {
-	s := storage.NewMemStorage()
-	mr := NewMetricResource(s)
+	cfg, err := config.NewConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := storage.NewMemStorage(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mr := NewMetricResource(s, cfg)
 
 	ts := httptest.NewServer(NewMetricRouter(mr))
 

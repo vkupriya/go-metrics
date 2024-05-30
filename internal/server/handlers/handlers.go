@@ -1,13 +1,19 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"html/template"
-	"log"
+
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
+
+	mw "github.com/vkupriya/go-metrics/internal/server/middleware"
+	"github.com/vkupriya/go-metrics/internal/server/models"
+	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
 const tmpl string = `
@@ -25,8 +31,8 @@ const tmpl string = `
 `
 
 type Storage interface {
-	UpdateGaugeMetric(name string, value float64) float64
-	UpdateCounterMetric(name string, value int64) int64
+	UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error)
+	UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error)
 	GetCounterMetric(name string) (int64, error)
 	GetGaugeMetric(name string) (float64, error)
 	GetAllValues() (map[string]float64, map[string]int64)
@@ -38,27 +44,52 @@ const (
 )
 
 type MetricResource struct {
-	store Storage
+	store  Storage
+	config *models.Config
 }
 
-func NewMetricResource(store Storage) *MetricResource {
-	return &MetricResource{store: store}
+func NewStore(c *models.Config) (Storage, error) {
+	if c.FileStoragePath != "" {
+		fs, err := storage.NewFileStorage(c)
+		if err != nil {
+			return fs, fmt.Errorf("failed to initialize FileStorage: %w", err)
+		}
+		return fs, nil
+	}
+	ms, err := storage.NewMemStorage(c)
+	if err != nil {
+		return ms, fmt.Errorf("failed to initialize MemStorage: %w", err)
+	}
+	return ms, nil
+}
+
+func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
+	return &MetricResource{
+		store:  store,
+		config: cfg}
 }
 
 func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
-	r.Use(middleware.AllowContentType("text/plain"))
+	ml := mw.NewMiddlewareLogger(mr.config)
+	mg := mw.NewMiddlewareGzip(mr.config)
+
+	r.Use(ml.Logging)
+	r.Use(mg.GzipHandle)
 
 	r.Get("/", mr.GetAllMetrics)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
+	r.Post("/value/", mr.GetMetricJSON)
+	r.Post("/update/", mr.UpdateMetricJSON)
 	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
 
 	return r
 }
 
 func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
 	mtype := chi.URLParam(r, "metricType")
 	mname := chi.URLParam(r, "metricName")
 	mvalue := chi.URLParam(r, "metricValue")
@@ -85,7 +116,10 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.store.UpdateGaugeMetric(mname, mv)
+			_, err = mr.store.UpdateGaugeMetric(mr.config, mname, mv)
+			if err != nil {
+				logger.Sugar().Error("failed to update gauge metric", err)
+			}
 			rw.WriteHeader(http.StatusOK)
 
 		case mtype == counter:
@@ -94,14 +128,69 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			mr.store.UpdateCounterMetric(mname, mv)
+			_, err = mr.store.UpdateCounterMetric(mr.config, mname, mv)
+			if err != nil {
+				logger.Sugar().Error("failed to update counter metric", err)
+			}
 			rw.WriteHeader(http.StatusOK)
 		}
 		return
 	}
 }
 
+func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+	logger := mr.config.Logger
+
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
+		logger.Sugar().Debug("cannot decode request JSON body", zap.Error(err))
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if req.MType != "counter" && req.MType != "gauge" {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	mtype := req.MType
+	mname := req.ID
+
+	rw.Header().Set("Content-Type", "application/json")
+
+	switch {
+	case mtype == gauge:
+		if req.Value == nil {
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		rv, err := mr.store.UpdateGaugeMetric(mr.config, mname, *req.Value)
+		if err != nil {
+			logger.Sugar().Error("failed to update gauge metric", err)
+		}
+		*req.Value = rv
+
+	case mtype == counter:
+		if req.Delta == nil {
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		rd, err := mr.store.UpdateCounterMetric(mr.config, mname, *req.Delta)
+		if err != nil {
+			logger.Sugar().Error("failed to update counter metric", err)
+		}
+		*req.Delta = rd
+	}
+	enc := json.NewEncoder(rw)
+	if err := enc.Encode(req); err != nil {
+		logger.Sugar().Debug("error encoding JSON response", zap.Error(err))
+		return
+	}
+}
+
 func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
 	mtype := chi.URLParam(r, "metricType")
 	mname := chi.URLParam(r, "metricName")
 
@@ -116,31 +205,79 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
-		} else {
-			if _, err := rw.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64))); err != nil {
-				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
-				http.Error(rw, "", http.StatusInternalServerError)
-			}
-			rw.WriteHeader(http.StatusOK)
+		}
+		if _, err := rw.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64))); err != nil {
+			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, err)
+			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
+
 	case mtype == counter:
 		v, err := mr.store.GetCounterMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
-		} else {
-			if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
-				log.Printf("failed to write into response writer value for metric %s: %v", mname, err)
-				http.Error(rw, "", http.StatusInternalServerError)
-			}
-			rw.WriteHeader(http.StatusOK)
+		}
+		if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
+			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, err)
+			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
 	}
 }
 
+func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+	logger := mr.config.Logger
+
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
+		logger.Sugar().Error("cannot decode request JSON body", zap.Error(err))
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if req.MType != "counter" && req.MType != "gauge" {
+		logger.Sugar().Error("unsupported metric type", zap.String("type", req.MType))
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	mtype := req.MType
+	mname := req.ID
+
+	rw.Header().Set("Content-Type", "application/json")
+
+	switch {
+	case mtype == gauge:
+		v, err := mr.store.GetGaugeMetric(mname)
+		if err != nil {
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		}
+		req.Value = &v
+
+	case mtype == counter:
+		v, err := mr.store.GetCounterMetric(mname)
+		if err != nil {
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		}
+		fmt.Println(v)
+		req.Delta = &v
+	}
+
+	rw.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(rw)
+	if err := enc.Encode(req); err != nil {
+		logger.Sugar().Debug("error encoding JSON response", zap.Error(err))
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
 func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
 	gauge, counter := mr.store.GetAllValues()
 
 	allMetrics := make(map[string]any)
@@ -155,13 +292,14 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 	t, err := template.New("tmpl").Parse(tmpl)
 	if err != nil {
-		log.Printf("failed to load http template: %v", err)
+		logger.Sugar().Errorf("failed to load http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
 
+	rw.Header().Set("Content-Type", "text/html")
 	if err := t.Execute(rw, allMetrics); err != nil {
-		log.Printf("failed to execute http template: %v", err)
+		logger.Sugar().Errorf("failed to execute http template: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
