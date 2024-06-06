@@ -21,7 +21,7 @@ func NewConfig() (*models.Config, error) {
 	i := flag.Int64("i", defaultStoreInterval, "Store interval in seconds, 0 sets it to synchronous.")
 	p := flag.String("f", "/tmp/metrics-db.json", "File storage path.")
 	r := flag.Bool("r", true, "Restore in memory DB at start up.")
-	d := flag.String("d", "", "PostgreSQL DSN")
+	d := flag.String("d", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable", "PostgreSQL DSN")
 
 	flag.Parse()
 
