@@ -322,7 +322,11 @@ func (mr *MetricResource) GetPostgresStatus(rw http.ResponseWriter, r *http.Requ
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.Sugar().Errorf("failed to close PG DB connection pool: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
