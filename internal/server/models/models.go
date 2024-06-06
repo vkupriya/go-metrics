@@ -8,6 +8,7 @@ type Config struct {
 	Logger          *zap.Logger
 	Address         string
 	FileStoragePath string
+	PostgresDSN     string
 	StoreInterval   int64
 	RestoreMetrics  bool
 }

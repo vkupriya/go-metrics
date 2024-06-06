@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"net/http"
 	"strconv"
@@ -79,6 +84,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	r.Use(mg.GzipHandle)
 
 	r.Get("/", mr.GetAllMetrics)
+	r.Get("/ping", mr.GetPostgresStatus)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
 	r.Post("/value/", mr.GetMetricJSON)
 	r.Post("/update/", mr.UpdateMetricJSON)
@@ -300,6 +306,28 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 	rw.Header().Set("Content-Type", "text/html")
 	if err := t.Execute(rw, allMetrics); err != nil {
 		logger.Sugar().Errorf("failed to execute http template: %v", err)
+		http.Error(rw, "", http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+}
+
+func (mr *MetricResource) GetPostgresStatus(rw http.ResponseWriter, r *http.Request) {
+	logger := mr.config.Logger
+
+	db, err := sql.Open("pgx", mr.config.PostgresDSN)
+	if err != nil {
+		logger.Sugar().Errorf("failed to create PG DB connection pool: %v", err)
+		http.Error(rw, "", http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if err = db.PingContext(ctx); err != nil {
+		logger.Sugar().Errorf("failed to connect to DB: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
