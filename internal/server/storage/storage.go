@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,10 @@ import (
 	"io/fs"
 	"os"
 	"time"
+
+	"database/sql"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/vkupriya/go-metrics/internal/server/models"
 	"go.uber.org/zap"
@@ -20,6 +25,41 @@ type MemStorage struct {
 
 type FileStorage struct {
 	*MemStorage
+}
+
+type PostgresDB struct {
+	*sql.DB
+}
+
+func NewPostgresDB(c *models.Config) (*PostgresDB, error) {
+	db, err := sql.Open("pgx", c.PostgresDSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PG DB connection pool: %w", err)
+	}
+
+	createSchema := []string{
+		`CREATE TABLE IF NOT EXISTS gauge(
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			name varchar(40) UNIQUE NOT NULL,
+			value bigint
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS counter(
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			name varchar(40) UNIQUE NOT NULL,
+			value bigint
+		)`,
+	}
+	ctx := context.Background()
+	for _, table := range createSchema {
+		if _, err := db.ExecContext(ctx, table); err != nil {
+			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
+		}
+	}
+
+	return &PostgresDB{
+		db,
+	}, nil
 }
 
 func NewMemStorage(c *models.Config) (*MemStorage, error) {
@@ -223,4 +263,31 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 			}
 		}
 	}()
+}
+
+func (m *PostgresDB) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
+	f := 000.1
+	return f, nil
+}
+
+func (m *PostgresDB) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
+	var i int64 = 1
+	return i, nil
+}
+
+func (m *PostgresDB) GetCounterMetric(name string) (int64, error) {
+	var i int64 = 1
+	return i, nil
+}
+
+func (m *PostgresDB) GetGaugeMetric(name string) (float64, error) {
+	f := 000.1
+	return f, nil
+}
+
+func (m *PostgresDB) GetAllValues() (map[string]float64, map[string]int64) {
+	f := make(map[string]float64)
+	i := make(map[string]int64)
+
+	return f, i
 }
