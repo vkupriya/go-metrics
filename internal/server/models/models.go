@@ -19,3 +19,13 @@ type Metrics struct {
 	ID    string   `json:"id"`              // metric name
 	MType string   `json:"type"`            // metric type: counter or gauge
 }
+
+type CounterModel struct {
+	Name  string
+	Value int64
+}
+
+type GaugeModel struct {
+	Name  string
+	Value float64
+}

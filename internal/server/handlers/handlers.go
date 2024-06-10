@@ -38,9 +38,9 @@ const tmpl string = `
 type Storage interface {
 	UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error)
 	UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error)
-	GetCounterMetric(name string) (int64, error)
-	GetGaugeMetric(name string) (float64, error)
-	GetAllValues() (map[string]float64, map[string]int64)
+	GetCounterMetric(name string) (int64, bool, error)
+	GetGaugeMetric(name string) (float64, bool, error)
+	GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error)
 }
 
 const (
@@ -56,7 +56,7 @@ type MetricResource struct {
 func NewStore(c *models.Config) (Storage, error) {
 	if c.PostgresDSN != "" {
 		fmt.Println("initializing DB.")
-		db, err := storage.NewPostgresDB(c)
+		db, err := storage.NewPostgresStorage(c)
 		if err != nil {
 			return db, fmt.Errorf("failed to initialize PostgresDB: %w", err)
 		}
@@ -216,7 +216,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case mtype == gauge:
-		v, err := mr.store.GetGaugeMetric(mname)
+		v, _, err := mr.store.GetGaugeMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -228,7 +228,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 		}
 
 	case mtype == counter:
-		v, err := mr.store.GetCounterMetric(mname)
+		v, _, err := mr.store.GetCounterMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -264,7 +264,7 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 
 	switch {
 	case mtype == gauge:
-		v, err := mr.store.GetGaugeMetric(mname)
+		v, _, err := mr.store.GetGaugeMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -272,7 +272,7 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 		req.Value = &v
 
 	case mtype == counter:
-		v, err := mr.store.GetCounterMetric(mname)
+		v, _, err := mr.store.GetCounterMetric(mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -293,7 +293,12 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
 
-	gauge, counter := mr.store.GetAllValues()
+	gauge, counter, err := mr.store.GetAllMetrics(mr.config)
+	if err != nil {
+		logger.Sugar().Errorf("failed to get all metrics: %w", err)
+		http.Error(rw, "", http.StatusInternalServerError)
+		return
+	}
 
 	allMetrics := make(map[string]any)
 

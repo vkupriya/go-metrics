@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"time"
 
@@ -27,37 +28,59 @@ type FileStorage struct {
 	*MemStorage
 }
 
-type PostgresDB struct {
+type PostgresStorage struct {
 	*sql.DB
 }
 
-func NewPostgresDB(c *models.Config) (*PostgresDB, error) {
+func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 	db, err := sql.Open("pgx", c.PostgresDSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PG DB connection pool: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	defer cancel()
+
+	tx, err := db.BeginTx(ctx, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to start a transaction: %w", err)
+	}
+
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			if !errors.Is(err, sql.ErrTxDone) {
+				log.Printf("failed to rollback the transaction: %v", err)
+			}
+		}
+	}()
+
 	createSchema := []string{
 		`CREATE TABLE IF NOT EXISTS gauge(
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-			name varchar(40) UNIQUE NOT NULL,
-			value bigint
+			name varchar(200) UNIQUE NOT NULL,
+			value double precision
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS counter(
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-			name varchar(40) UNIQUE NOT NULL,
+			name varchar(200) UNIQUE NOT NULL,
 			value bigint
 		)`,
 	}
-	ctx := context.Background()
+
 	for _, table := range createSchema {
-		if _, err := db.ExecContext(ctx, table); err != nil {
+		if _, err := tx.ExecContext(ctx, table); err != nil {
 			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
 		}
 	}
 
-	return &PostgresDB{
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit PostgresDB transaction: %w", err)
+	}
+
+	return &PostgresStorage{
 		db,
 	}, nil
 }
@@ -146,24 +169,24 @@ func (m *MemStorage) UpdateCounterMetric(c *models.Config, name string, value in
 	return m.counter[name], nil
 }
 
-func (m *MemStorage) GetCounterMetric(name string) (int64, error) {
+func (m *MemStorage) GetCounterMetric(name string) (int64, bool, error) {
 	v, ok := m.counter[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown metric %s ", name)
+	return v, false, fmt.Errorf("unknown metric %s ", name)
 }
 
-func (m *MemStorage) GetGaugeMetric(name string) (float64, error) {
+func (m *MemStorage) GetGaugeMetric(name string) (float64, bool, error) {
 	v, ok := m.gauge[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown metric %s ", name)
+	return v, false, fmt.Errorf("unknown metric %s ", name)
 }
 
-func (m *MemStorage) GetAllValues() (map[string]float64, map[string]int64) {
-	return m.gauge, m.counter
+func (m *MemStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
+	return m.gauge, m.counter, nil
 }
 
 func (f *FileStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
@@ -188,24 +211,24 @@ func (f *FileStorage) UpdateCounterMetric(c *models.Config, name string, value i
 	return f.counter[name], nil
 }
 
-func (f *FileStorage) GetCounterMetric(name string) (int64, error) {
+func (f *FileStorage) GetCounterMetric(name string) (int64, bool, error) {
 	v, ok := f.counter[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown counter metric %s ", name)
+	return v, false, fmt.Errorf("unknown counter metric %s ", name)
 }
 
-func (f *FileStorage) GetGaugeMetric(name string) (float64, error) {
+func (f *FileStorage) GetGaugeMetric(name string) (float64, bool, error) {
 	v, ok := f.gauge[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown gauge metric %s ", name)
+	return v, false, fmt.Errorf("unknown gauge metric %s ", name)
 }
 
-func (f *FileStorage) GetAllValues() (map[string]float64, map[string]int64) {
-	return f.gauge, f.counter
+func (f *FileStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
+	return f.gauge, f.counter, nil
 }
 
 func (f *FileStorage) SaveMetrics(c *models.Config) error {
@@ -265,29 +288,133 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 	}()
 }
 
-func (m *PostgresDB) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
-	f := 000.1
-	return f, nil
+func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
+	db := p.DB
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	v, e, err := p.GetGaugeMetric(name)
+
+	if err != nil {
+		return v, err
+	}
+
+	// If metric doesn't exist then Insert, otherwise Update
+	if !e {
+		_, err = db.ExecContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2)", name, value)
+
+		if err != nil {
+			return value, fmt.Errorf("failed to insert gauge metric into Postgres DB: %w", err)
+		}
+	} else {
+		_, err = db.ExecContext(ctx, "UPDATE gauge SET value = $1 WHERE name = $2", value, name)
+		if err != nil {
+			return value, fmt.Errorf("failed to update gauge metric %s in Postgres DB: %w", name, err)
+		}
+	}
+
+	return v, nil
 }
 
-func (m *PostgresDB) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
+func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
 	var i int64 = 1
 	return i, nil
 }
 
-func (m *PostgresDB) GetCounterMetric(name string) (int64, error) {
-	var i int64 = 1
-	return i, nil
+func (p *PostgresStorage) GetCounterMetric(name string) (int64, bool, error) {
+	db := p.DB
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var i int64
+
+	row := db.QueryRowContext(ctx, "SELECT value FROM counter WHERE name=$1", name)
+	err := row.Scan(&i)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return i, false, nil
+		} else {
+			return i, false, fmt.Errorf("failed to query counter table in Postgres DB: %w", err)
+		}
+	}
+	return i, true, nil
 }
 
-func (m *PostgresDB) GetGaugeMetric(name string) (float64, error) {
-	f := 000.1
-	return f, nil
+func (p *PostgresStorage) GetGaugeMetric(name string) (float64, bool, error) {
+	db := p.DB
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var f float64
+
+	row := db.QueryRowContext(ctx, "SELECT value FROM gauge WHERE name=$1", name)
+	err := row.Scan(&f)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return f, false, nil
+		} else {
+			return f, false, fmt.Errorf("failed to query gauge table in Postgres DB: %w", err)
+		}
+	}
+	return f, true, nil
 }
 
-func (m *PostgresDB) GetAllValues() (map[string]float64, map[string]int64) {
-	f := make(map[string]float64)
-	i := make(map[string]int64)
+func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
+	logger := c.Logger
+	gaugeAll := make(map[string]float64)
+	counterAll := make(map[string]int64)
 
-	return f, i
+	db := p.DB
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx, "SELECT name, value FROM gauge")
+	if err != nil {
+		return nil, nil, fmt.Errorf("gauge table query error: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logger.Sugar().Error("failed to close rows cursor: %w", err)
+		}
+	}()
+	for rows.Next() {
+		var gauge models.GaugeModel
+		if err := rows.Scan(
+			&gauge.Name,
+			&gauge.Value,
+		); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan row in gauge table: %w", err)
+		}
+		gaugeAll[gauge.Name] = gauge.Value
+	}
+	if err := rows.Err(); err != nil {
+		logger.Sugar().Error("errors reading rows: %w", err)
+	}
+	rows, err = db.QueryContext(ctx, "SELECT name, value FROM counter")
+	if err != nil {
+		return nil, nil, fmt.Errorf("counter table query error: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logger.Sugar().Error("failed to close rows cursor: %w", err)
+		}
+	}()
+
+	for rows.Next() {
+		var counter models.CounterModel
+		if err := rows.Scan(
+			&counter.Name,
+			&counter.Value,
+		); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan row in gauge table: %w", err)
+		}
+		counterAll[counter.Name] = counter.Value
+	}
+	if err := rows.Err(); err != nil {
+		logger.Sugar().Error("errors reading rows: %w", err)
+	}
+
+	return gaugeAll, counterAll, nil
 }
