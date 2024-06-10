@@ -59,14 +59,14 @@ func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 	createSchema := []string{
 		`CREATE TABLE IF NOT EXISTS gauge(
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-			name varchar(200) UNIQUE NOT NULL,
-			value double precision
+			name VARCHAR(255) UNIQUE NOT NULL,
+			value DOUBLE PRECISION
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS counter(
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-			name varchar(200) UNIQUE NOT NULL,
-			value bigint
+			name VARCHAR(255) UNIQUE NOT NULL,
+			value BIGINT
 		)`,
 	}
 
