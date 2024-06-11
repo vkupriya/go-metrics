@@ -95,18 +95,19 @@ func (c *Collector) StartTickers() error {
 func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
 	metrics := make([]Metric, 0)
-	for k, i := range c.counter {
+	for k, v := range c.counter {
 		mtype := "counter"
-		delta := i
+		delta := v
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: &delta})
 	}
 	// Resetting PollCount to 0
 	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
-	for g, f := range c.gauge {
+	for k, v := range c.gauge {
 		mtype := "gauge"
-		metrics = append(metrics, Metric{ID: g, MType: mtype, Value: &f})
+		value := v
+		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: &value})
 	}
 	if metrics != nil {
 		if err := metricPost(metrics, c.config.metricHost); err != nil {
