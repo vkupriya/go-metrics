@@ -19,7 +19,7 @@ type Collector struct {
 	config  Config
 }
 
-type Metrics struct {
+type Metric struct {
 	Delta *int64   `json:"delta,omitempty"` // значение метрики в случае передачи counter
 	Value *float64 `json:"value,omitempty"` // значение метрики в случае передачи gauge
 	ID    string   `json:"id"`              // имя метрики
@@ -93,44 +93,46 @@ func (c *Collector) StartTickers() error {
 
 func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
-	for k, v := range c.counter {
+	var metrics []Metric
+	for k, i := range c.counter {
 		mtype := "counter"
-		if err := metricPost(Metrics{ID: k, MType: mtype, Delta: &v}, c.config.metricHost); err != nil {
-			return fmt.Errorf("failed http post for %s metric %s: %w", mtype, k, err)
-		}
+		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: &i})
 	}
 	// Resetting PollCount to 0
 	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
-	for k, v := range c.gauge {
+	for k, f := range c.gauge {
 		mtype := "gauge"
-		if err := metricPost(Metrics{ID: k, MType: mtype, Value: &v}, c.config.metricHost); err != nil {
-			return fmt.Errorf("failed http post for %s metric %s: %w", mtype, k, err)
+		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: &f})
+	}
+	if metrics != nil {
+		if err := metricPost(metrics, c.config.metricHost); err != nil {
+			return fmt.Errorf("failed http post metrics batch: %w", err)
 		}
 	}
 	return nil
 }
 
-func metricPost(m Metrics, h string) error {
+func metricPost(m []Metric, h string) error {
 	const httpTimeout int = 30
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
 
-	url := fmt.Sprintf("http://%s/update/", h)
+	url := fmt.Sprintf("http://%s/updates/", h)
 
 	body, err := json.Marshal(m)
 	if err != nil {
-		return fmt.Errorf("error encoding JSON response for %s for metric %s: %w", m.MType, m.ID, err)
+		return fmt.Errorf("error encoding JSON response for metrics batch: %w", err)
 	}
 	var gz bytes.Buffer
 	w := gzip.NewWriter(&gz)
 	_, err = w.Write(body)
 	if err != nil {
-		return fmt.Errorf("failed to write into gzip.NewWriter for %s for metric %s: %w", m.MType, m.ID, err)
+		return fmt.Errorf("failed to write into gzip.NewWriter metrics batch: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("failed to close gzip.NewWriter for %s for metric %s: %w", m.MType, m.ID, err)
+		return fmt.Errorf("failed to close gzip.NewWriter for metrics batch: %w", err)
 	}
 
 	resp, err := client.R().
@@ -143,7 +145,7 @@ func metricPost(m Metrics, h string) error {
 		return fmt.Errorf("error to do http post: %w", err)
 	}
 
-	fmt.Printf("Sent %s metric: %s, Status code: %d\n", m.MType, m.ID, resp.StatusCode())
+	fmt.Printf("Sent metrics batch Status code: %d\n", resp.StatusCode())
 
 	return nil
 }

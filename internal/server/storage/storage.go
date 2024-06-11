@@ -189,6 +189,18 @@ func (m *MemStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[st
 	return m.gauge, m.counter, nil
 }
 
+func (m *MemStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	if g != nil || cr != nil {
+		for _, i := range g {
+			m.gauge[i.ID] = *i.Value
+		}
+		for _, i := range cr {
+			m.counter[i.ID] = *i.Delta
+		}
+	}
+	return nil
+}
+
 func (f *FileStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
 	f.gauge[name] = value
 	if c.StoreInterval == 0 {
@@ -229,6 +241,24 @@ func (f *FileStorage) GetGaugeMetric(c *models.Config, name string) (float64, bo
 
 func (f *FileStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
 	return f.gauge, f.counter, nil
+}
+
+func (f *FileStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	if g != nil || cr != nil {
+		for _, i := range g {
+			f.gauge[i.ID] = *i.Value
+		}
+		for _, i := range cr {
+			f.counter[i.ID] = *i.Delta
+		}
+		if c.StoreInterval == 0 {
+			err := f.SaveMetrics(c)
+			if err != nil {
+				return fmt.Errorf("failed to save metrics to file: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (f *FileStorage) SaveMetrics(c *models.Config) error {
@@ -272,7 +302,7 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 
 	logger := c.Logger
 	logger.Sugar().Infow(
-		`MemStorage's ticker started`,
+		`SaveMetricsTicker started`,
 		zap.Int64(`StoreInterval`, c.StoreInterval),
 	)
 
@@ -295,26 +325,12 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	_, e, err := p.GetGaugeMetric(c, name)
+	_, err := db.ExecContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2)"+
+		"ON CONFLICT (name) DO UPDATE SET value = $2", name, value)
 
 	if err != nil {
-		return value, err
+		return value, fmt.Errorf("failed to insert/update %s metric into Postgres DB: %w", mtype, err)
 	}
-
-	// If metric doesn't exist then Insert, otherwise Update
-	if !e {
-		_, err = db.ExecContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2)", name, value)
-
-		if err != nil {
-			return value, fmt.Errorf("failed to insert %s metric into Postgres DB: %w", mtype, err)
-		}
-	} else {
-		_, err = db.ExecContext(ctx, "UPDATE gauge SET value = $1 WHERE name = $2", value, name)
-		if err != nil {
-			return value, fmt.Errorf("failed to update %s metric %s in Postgres DB: %w", mtype, name, err)
-		}
-	}
-
 	return value, nil
 }
 
@@ -325,26 +341,12 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	_, e, err := p.GetCounterMetric(c, name)
+	_, err := db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)"+
+		"ON CONFLICT (name) DO UPDATE SET value = $2", name, value)
 
 	if err != nil {
-		return value, err
+		return value, fmt.Errorf("failed to insert/update %s metric into Postgres DB: %w", mtype, err)
 	}
-
-	// If metric doesn't exist then Insert, otherwise Update
-	if !e {
-		_, err = db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
-
-		if err != nil {
-			return value, fmt.Errorf("failed to insert %s metric into Postgres DB: %w", mtype, err)
-		}
-	} else {
-		_, err = db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
-		if err != nil {
-			return value, fmt.Errorf("failed to update %s metric %s in Postgres DB: %w", mtype, name, err)
-		}
-	}
-
 	return value, nil
 }
 
@@ -441,4 +443,71 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 	}
 
 	return gaugeAll, counterAll, nil
+}
+
+func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	logger := c.Logger
+	db := p.DB
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+
+	if cr != nil || g != nil {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
+
+		// processing counter metrics
+
+		stmt1, err := tx.PrepareContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2) "+
+			"ON CONFLICT (name) DO UPDATE SET value = $2")
+
+		if err != nil {
+			return fmt.Errorf("failed to prepare context: %w", err)
+		}
+
+		defer func() {
+			if err := stmt1.Close(); err != nil {
+				logger.Sugar().Errorf("failed to close statement", zap.Error(err))
+			}
+		}()
+
+		for _, i := range cr {
+			_, err := stmt1.ExecContext(ctx, i.ID, i.Delta)
+			if err != nil {
+				if err := tx.Rollback(); err != nil {
+					return fmt.Errorf("failed to rollback transaction: %w", err)
+				}
+				return fmt.Errorf("failed to execute SQL statement: %w", err)
+			}
+		}
+
+		// processing gauge metrics
+		stmt2, err := tx.PrepareContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2) "+
+			"ON CONFLICT (name) DO UPDATE SET value = $2")
+		if err != nil {
+			return fmt.Errorf("failed to prepare context: %w", err)
+		}
+
+		defer func() {
+			if err := stmt2.Close(); err != nil {
+				logger.Sugar().Errorf("failed to close statement", zap.Error(err))
+			}
+		}()
+
+		for _, i := range g {
+			_, err := stmt2.ExecContext(ctx, i.ID, i.Value)
+			if err != nil {
+				if err := tx.Rollback(); err != nil {
+					return fmt.Errorf("failed to rollback transaction: %w", err)
+				}
+				return fmt.Errorf("failed to execute SQL statement: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+	}
+	return nil
 }

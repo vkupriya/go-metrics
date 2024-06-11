@@ -41,6 +41,7 @@ type Storage interface {
 	GetCounterMetric(c *models.Config, name string) (int64, bool, error)
 	GetGaugeMetric(c *models.Config, name string) (float64, bool, error)
 	GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error)
+	UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error
 }
 
 const (
@@ -98,6 +99,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	r.Post("/value/", mr.GetMetricJSON)
 	r.Post("/update/", mr.UpdateMetricJSON)
 	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
+	r.Post("/updates/", mr.UpdateBatchJSON)
 
 	return r
 }
@@ -154,7 +156,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 }
 
 func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Request) {
-	var req models.Metrics
+	var req models.Metric
 	logger := mr.config.Logger
 
 	dec := json.NewDecoder(r.Body)
@@ -242,7 +244,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request) {
-	var req models.Metrics
+	var req models.Metric
 	logger := mr.config.Logger
 
 	dec := json.NewDecoder(r.Body)
@@ -350,5 +352,40 @@ func (mr *MetricResource) GetPostgresStatus(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	rw.WriteHeader(http.StatusOK)
+}
+
+func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Request) {
+	var req models.Metrics
+	logger := mr.config.Logger
+
+	var (
+		gauge   models.Metrics
+		counter models.Metrics
+	)
+
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
+		logger.Sugar().Debug("cannot decode request JSON body", zap.Error(err))
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	for _, metric := range req {
+		switch metric.MType {
+		case "gauge":
+			gauge = append(gauge, metric)
+		case "counter":
+			counter = append(counter, metric)
+		default:
+			logger.Sugar().Errorf("wrong metric type '%s'", metric.MType)
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	}
+	err := mr.store.UpdateBatch(mr.config, gauge, counter)
+	if err != nil {
+		logger.Sugar().Error(err)
+	}
 	rw.WriteHeader(http.StatusOK)
 }
