@@ -294,10 +294,10 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	v, e, err := p.GetGaugeMetric(name)
+	_, e, err := p.GetGaugeMetric(name)
 
 	if err != nil {
-		return v, err
+		return value, err
 	}
 
 	// If metric doesn't exist then Insert, otherwise Update
@@ -314,12 +314,36 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 		}
 	}
 
-	return v, nil
+	return value, nil
 }
 
 func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
-	var i int64 = 1
-	return i, nil
+	db := p.DB
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, e, err := p.GetCounterMetric(name)
+
+	if err != nil {
+		return value, err
+	}
+
+	// If metric doesn't exist then Insert, otherwise Update
+	if !e {
+		_, err = db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
+
+		if err != nil {
+			return value, fmt.Errorf("failed to insert counter metric into Postgres DB: %w", err)
+		}
+	} else {
+		_, err = db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
+		if err != nil {
+			return value, fmt.Errorf("failed to update counter metric %s in Postgres DB: %w", name, err)
+		}
+	}
+
+	return value, nil
 }
 
 func (p *PostgresStorage) GetCounterMetric(name string) (int64, bool, error) {
