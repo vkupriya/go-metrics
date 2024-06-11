@@ -86,7 +86,7 @@ func (c *Collector) StartTickers() error {
 			c.collectMetrics()
 		case <-sendTicker.C:
 			if err := c.sendMetrics(); err != nil {
-				log.Printf("error while sending metrics to server: %v", err)
+				return fmt.Errorf("error while sending metrics to server: %w", err)
 			}
 		}
 	}
@@ -110,8 +110,22 @@ func (c *Collector) sendMetrics() error {
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: &value})
 	}
 	if metrics != nil {
-		if err := metricPost(metrics, c.config.metricHost); err != nil {
-			return fmt.Errorf("failed http post metrics batch: %w", err)
+		var (
+			retries    = 3
+			retry      = 0
+			retryDelay = 2
+		)
+		for retry <= retries {
+			if err := metricPost(metrics, c.config.metricHost); err != nil {
+				log.Print("failed http post metrics batch, retrying\n")
+				if retry == retries {
+					return fmt.Errorf("failed http post metrics batch: %w", err)
+				}
+			} else {
+				break
+			}
+			time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
+			retry++
 		}
 	}
 	return nil
