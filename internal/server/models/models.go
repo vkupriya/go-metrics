@@ -11,6 +11,7 @@ type Config struct {
 	PostgresDSN     string
 	StoreInterval   int64
 	RestoreMetrics  bool
+	ContextTimeout  int64
 }
 
 type Metrics struct {

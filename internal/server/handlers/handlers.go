@@ -38,8 +38,8 @@ const tmpl string = `
 type Storage interface {
 	UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error)
 	UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error)
-	GetCounterMetric(name string) (int64, bool, error)
-	GetGaugeMetric(name string) (float64, bool, error)
+	GetCounterMetric(c *models.Config, name string) (int64, bool, error)
+	GetGaugeMetric(c *models.Config, name string) (float64, bool, error)
 	GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error)
 }
 
@@ -216,7 +216,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case mtype == gauge:
-		v, _, err := mr.store.GetGaugeMetric(mname)
+		v, _, err := mr.store.GetGaugeMetric(mr.config, mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -228,7 +228,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 		}
 
 	case mtype == counter:
-		v, _, err := mr.store.GetCounterMetric(mname)
+		v, _, err := mr.store.GetCounterMetric(mr.config, mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -264,7 +264,7 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 
 	switch {
 	case mtype == gauge:
-		v, _, err := mr.store.GetGaugeMetric(mname)
+		v, _, err := mr.store.GetGaugeMetric(mr.config, mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return
@@ -272,7 +272,7 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 		req.Value = &v
 
 	case mtype == counter:
-		v, _, err := mr.store.GetCounterMetric(mname)
+		v, _, err := mr.store.GetCounterMetric(mr.config, mname)
 		if err != nil {
 			rw.WriteHeader(http.StatusNotFound)
 			return

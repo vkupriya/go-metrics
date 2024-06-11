@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	defaultStoreInterval int64 = 300
+	defaultStoreInterval  int64 = 300
+	defaultContextTimeout int64 = 3
 )
 
 func NewConfig() (*models.Config, error) {
@@ -65,5 +66,6 @@ func NewConfig() (*models.Config, error) {
 		RestoreMetrics:  *r,
 		Logger:          logger,
 		PostgresDSN:     *d,
+		ContextTimeout:  defaultContextTimeout,
 	}, nil
 }
