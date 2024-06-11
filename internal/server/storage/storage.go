@@ -327,7 +327,6 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 
 	_, err := db.ExecContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2)"+
 		"ON CONFLICT (name) DO UPDATE SET value = $2", name, value)
-
 	if err != nil {
 		return value, fmt.Errorf("failed to insert/update %s metric into Postgres DB: %w", mtype, err)
 	}
