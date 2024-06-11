@@ -96,7 +96,6 @@ func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
 	metrics := make([]Metric, 0)
 	for k, i := range c.counter {
-		fmt.Println("counter: ", k, i)
 		mtype := "counter"
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: i})
 	}
@@ -104,9 +103,9 @@ func (c *Collector) sendMetrics() error {
 	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
-	for k, f := range c.gauge {
+	for g, f := range c.gauge {
 		mtype := "gauge"
-		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: f})
+		metrics = append(metrics, Metric{ID: g, MType: mtype, Value: f})
 	}
 	if metrics != nil {
 		if err := metricPost(metrics, c.config.metricHost); err != nil {
