@@ -303,13 +303,13 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 
 	// If metric doesn't exist then Insert, otherwise Update
 	if !e {
-		_, err = db.ExecContext(ctx, "INSERT INTO $1 (name, value) VALUES($2, $3)", mtype, name, value)
+		_, err = db.ExecContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2)", name, value)
 
 		if err != nil {
 			return value, fmt.Errorf("failed to insert %s metric into Postgres DB: %w", mtype, err)
 		}
 	} else {
-		_, err = db.ExecContext(ctx, "UPDATE $1 SET value = $2 WHERE name = $3", mtype, value, name)
+		_, err = db.ExecContext(ctx, "UPDATE gauge SET value = $1 WHERE name = $2", value, name)
 		if err != nil {
 			return value, fmt.Errorf("failed to update %s metric %s in Postgres DB: %w", mtype, name, err)
 		}
@@ -333,13 +333,13 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 
 	// If metric doesn't exist then Insert, otherwise Update
 	if !e {
-		_, err = db.ExecContext(ctx, "INSERT INTO $1 (name, value) VALUES($2, $3)", mtype, name, value)
+		_, err = db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
 
 		if err != nil {
 			return value, fmt.Errorf("failed to insert %s metric into Postgres DB: %w", mtype, err)
 		}
 	} else {
-		_, err = db.ExecContext(ctx, "UPDATE $1 SET value = $2 WHERE name = $3", mtype, value, name)
+		_, err = db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
 		if err != nil {
 			return value, fmt.Errorf("failed to update %s metric %s in Postgres DB: %w", mtype, name, err)
 		}
