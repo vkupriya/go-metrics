@@ -56,7 +56,6 @@ type MetricResource struct {
 
 func NewStore(c *models.Config) (Storage, error) {
 	if c.PostgresDSN != "" {
-		fmt.Println("initializing DB.")
 		db, err := storage.NewPostgresStorage(c)
 		if err != nil {
 			return db, fmt.Errorf("failed to initialize PostgresDB: %w", err)

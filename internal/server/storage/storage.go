@@ -195,7 +195,7 @@ func (m *MemStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.M
 			m.gauge[i.ID] = *i.Value
 		}
 		for _, i := range cr {
-			m.counter[i.ID] = *i.Delta
+			m.counter[i.ID] += *i.Delta
 		}
 	}
 	return nil
@@ -249,7 +249,7 @@ func (f *FileStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.
 			f.gauge[i.ID] = *i.Value
 		}
 		for _, i := range cr {
-			f.counter[i.ID] = *i.Delta
+			f.counter[i.ID] += *i.Delta
 		}
 		if c.StoreInterval == 0 {
 			err := f.SaveMetrics(c)
@@ -335,18 +335,28 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 }
 
 func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
-	mtype := "counter"
 	db := p.DB
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	_, err := db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)"+
-		"ON CONFLICT (name) DO UPDATE SET value = $2", name, value)
-
+	v, e, err := p.GetCounterMetric(c, name)
 	if err != nil {
-		return value, fmt.Errorf("failed to insert/update %s metric into Postgres DB: %w", mtype, err)
+		return value, fmt.Errorf("failed query: %w", err)
 	}
+	if !e {
+		_, err := db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
+		if err != nil {
+			return value, fmt.Errorf("failed to insert counter metric '%s': %w", name, err)
+		}
+	} else {
+		value += v
+		_, err := db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
+		if err != nil {
+			return value, fmt.Errorf("failed to update counter metric '%s': %w", name, err)
+		}
+	}
+
 	return value, nil
 }
 
@@ -452,52 +462,47 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	if cr != nil || g != nil {
+	// processing counter metrics
+	for _, i := range cr {
+		v, e, err := p.GetCounterMetric(c, i.ID)
+		if err != nil {
+			return fmt.Errorf("failed query: %w", err)
+		}
+		if !e {
+			_, err := db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
+			if err != nil {
+				return fmt.Errorf("failed to insert counter metric '%s': %w", i.ID, err)
+			}
+		} else {
+			v += *i.Delta
+			_, err := db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
+			if err != nil {
+				return fmt.Errorf("failed to update counter metric '%s': %w", i.ID, err)
+			}
+		}
+	}
+
+	if g != nil {
+		// processing gauge metrics
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("failed to start transaction: %w", err)
 		}
 
-		// processing counter metrics
-
-		stmt1, err := tx.PrepareContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2) "+
-			"ON CONFLICT (name) DO UPDATE SET value = $2")
-
-		if err != nil {
-			return fmt.Errorf("failed to prepare context: %w", err)
-		}
-
-		defer func() {
-			if err := stmt1.Close(); err != nil {
-				logger.Sugar().Errorf("failed to close statement", zap.Error(err))
-			}
-		}()
-
-		for _, i := range cr {
-			_, err := stmt1.ExecContext(ctx, i.ID, i.Delta)
-			if err != nil {
-				if err := tx.Rollback(); err != nil {
-					return fmt.Errorf("failed to rollback transaction: %w", err)
-				}
-				return fmt.Errorf("failed to execute SQL statement: %w", err)
-			}
-		}
-
-		// processing gauge metrics
-		stmt2, err := tx.PrepareContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2) "+
+		stmt, err := tx.PrepareContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2) "+
 			"ON CONFLICT (name) DO UPDATE SET value = $2")
 		if err != nil {
 			return fmt.Errorf("failed to prepare context: %w", err)
 		}
 
 		defer func() {
-			if err := stmt2.Close(); err != nil {
+			if err := stmt.Close(); err != nil {
 				logger.Sugar().Errorf("failed to close statement", zap.Error(err))
 			}
 		}()
 
 		for _, i := range g {
-			_, err := stmt2.ExecContext(ctx, i.ID, i.Value)
+			_, err := stmt.ExecContext(ctx, i.ID, i.Value)
 			if err != nil {
 				if err := tx.Rollback(); err != nil {
 					return fmt.Errorf("failed to rollback transaction: %w", err)

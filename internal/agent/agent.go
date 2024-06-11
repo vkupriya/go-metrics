@@ -96,6 +96,7 @@ func (c *Collector) sendMetrics() error {
 	// Sending counter metrics
 	metrics := make([]Metric, 0)
 	for k, i := range c.counter {
+		fmt.Println("counter: ", k, i)
 		mtype := "counter"
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: i})
 	}
