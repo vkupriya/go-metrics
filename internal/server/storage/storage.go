@@ -244,20 +244,20 @@ func (f *FileStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[s
 }
 
 func (f *FileStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
-	// if g != nil || cr != nil {
-	// 	for _, i := range g {
-	// 		f.gauge[i.ID] = *i.Value
-	// 	}
-	// 	for _, i := range cr {
-	// 		f.counter[i.ID] += *i.Delta
-	// 	}
-	// 	if c.StoreInterval == 0 {
-	// 		err := f.SaveMetrics(c)
-	// 		if err != nil {
-	// 			return fmt.Errorf("failed to save metrics to file: %w", err)
-	// 		}
-	// 	}
-	// }
+	if g != nil || cr != nil {
+		for _, i := range g {
+			f.gauge[i.ID] = *i.Value
+		}
+		for _, i := range cr {
+			f.counter[i.ID] += *i.Delta
+		}
+		if c.StoreInterval == 0 {
+			err := f.SaveMetrics(c)
+			if err != nil {
+				return fmt.Errorf("failed to save metrics to file: %w", err)
+			}
+		}
+	}
 	return nil
 }
 

@@ -20,10 +20,10 @@ type Collector struct {
 }
 
 type Metric struct {
-	ID    string  `json:"id"`              // имя метрики
-	MType string  `json:"type"`            // параметр, принимающий значение gauge или counter
-	Delta int64   `json:"delta,omitempty"` // значение метрики в случае передачи counter
-	Value float64 `json:"value,omitempty"` // значение метрики в случае передачи gauge
+	ID    string   `json:"id"`              // имя метрики
+	MType string   `json:"type"`            // параметр, принимающий значение gauge или counter
+	Delta *int64   `json:"delta,omitempty"` // значение метрики в случае передачи counter
+	Value *float64 `json:"value,omitempty"` // значение метрики в случае передачи gauge
 
 }
 
@@ -97,7 +97,7 @@ func (c *Collector) sendMetrics() error {
 	metrics := make([]Metric, 0)
 	for k, i := range c.counter {
 		mtype := "counter"
-		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: i})
+		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: &i})
 	}
 	// Resetting PollCount to 0
 	c.counter["PollCount"] = 0
@@ -105,7 +105,7 @@ func (c *Collector) sendMetrics() error {
 	// Sending gauge metrics
 	for g, f := range c.gauge {
 		mtype := "gauge"
-		metrics = append(metrics, Metric{ID: g, MType: mtype, Value: f})
+		metrics = append(metrics, Metric{ID: g, MType: mtype, Value: &f})
 	}
 	if metrics != nil {
 		if err := metricPost(metrics, c.config.metricHost); err != nil {
