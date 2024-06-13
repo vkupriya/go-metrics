@@ -385,6 +385,8 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 	err := mr.store.UpdateBatch(mr.config, gauge, counter)
 	if err != nil {
 		logger.Sugar().Error(err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	rw.WriteHeader(http.StatusOK)
 }

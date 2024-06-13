@@ -11,9 +11,8 @@ import (
 	"os"
 	"time"
 
-	"database/sql"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vkupriya/go-metrics/internal/server/models"
 	"go.uber.org/zap"
@@ -29,28 +28,33 @@ type FileStorage struct {
 }
 
 type PostgresStorage struct {
-	*sql.DB
+	pool *pgxpool.Pool
 }
 
 func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
-	db, err := sql.Open("pgx", c.PostgresDSN)
+	poolCfg, err := pgxpool.ParseConfig(c.PostgresDSN)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create PG DB connection pool: %w", err)
+		return nil, fmt.Errorf("failed to parse the DSN: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 
 	defer cancel()
 
-	tx, err := db.BeginTx(ctx, nil)
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize a connection pool: %w", err)
+	}
+
+	tx, err := pool.Begin(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to start a transaction: %w", err)
 	}
 
 	defer func() {
-		if err := tx.Rollback(); err != nil {
-			if !errors.Is(err, sql.ErrTxDone) {
+		if err := tx.Rollback(ctx); err != nil {
+			if !errors.Is(err, pgx.ErrTxClosed) {
 				log.Printf("failed to rollback the transaction: %v", err)
 			}
 		}
@@ -71,17 +75,17 @@ func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 	}
 
 	for _, table := range createSchema {
-		if _, err := tx.ExecContext(ctx, table); err != nil {
+		if _, err := tx.Exec(ctx, table); err != nil {
 			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit PostgresDB transaction: %w", err)
 	}
 
 	return &PostgresStorage{
-		db,
+		pool: pool,
 	}, nil
 }
 
@@ -319,14 +323,15 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 }
 
 func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
-	db := p.DB
+	db := p.pool
 	mtype := "gauge"
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	_, err := db.ExecContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2)"+
-		"ON CONFLICT (name) DO UPDATE SET value = $2", name, value)
+	querySQL := "INSERT INTO gauge (name, value) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2"
+
+	_, err := db.Exec(ctx, querySQL, name, value)
 	if err != nil {
 		return value, fmt.Errorf("failed to insert/update %s metric into Postgres DB: %w", mtype, err)
 	}
@@ -334,7 +339,7 @@ func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value
 }
 
 func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
-	db := p.DB
+	db := p.pool
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
@@ -344,13 +349,13 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 		return value, fmt.Errorf("failed query: %w", err)
 	}
 	if !e {
-		_, err := db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
+		_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
 		if err != nil {
 			return value, fmt.Errorf("failed to insert counter metric '%s': %w", name, err)
 		}
 	} else {
 		value += v
-		_, err := db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
+		_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
 		if err != nil {
 			return value, fmt.Errorf("failed to update counter metric '%s': %w", name, err)
 		}
@@ -360,16 +365,16 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 }
 
 func (p *PostgresStorage) GetCounterMetric(c *models.Config, name string) (int64, bool, error) {
-	db := p.DB
+	db := p.pool
 	var i int64
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	row := db.QueryRowContext(ctx, "SELECT value FROM counter WHERE name=$1", name)
+	row := db.QueryRow(ctx, "SELECT value FROM counter WHERE name=$1", name)
 	err := row.Scan(&i)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return i, false, nil
 		}
 		return i, false, fmt.Errorf("failed to query counter table in Postgres DB: %w", err)
@@ -378,16 +383,16 @@ func (p *PostgresStorage) GetCounterMetric(c *models.Config, name string) (int64
 }
 
 func (p *PostgresStorage) GetGaugeMetric(c *models.Config, name string) (float64, bool, error) {
-	db := p.DB
+	db := p.pool
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 	var f float64
 
-	row := db.QueryRowContext(ctx, "SELECT value FROM gauge WHERE name=$1", name)
+	row := db.QueryRow(ctx, "SELECT value FROM gauge WHERE name=$1", name)
 	err := row.Scan(&f)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return f, false, nil
 		}
 		return f, false, fmt.Errorf("failed to query gauge table in Postgres DB: %w", err)
@@ -400,20 +405,17 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 	gaugeAll := make(map[string]float64)
 	counterAll := make(map[string]int64)
 
-	db := p.DB
+	db := p.pool
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	rows, err := db.QueryContext(ctx, "SELECT name, value FROM gauge")
+	rows, err := db.Query(ctx, "SELECT name, value FROM gauge")
 	if err != nil {
 		return nil, nil, fmt.Errorf("gauge table query error: %w", err)
 	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			logger.Sugar().Error("failed to close rows cursor: %w", err)
-		}
-	}()
+	defer rows.Close()
+
 	for rows.Next() {
 		var gauge models.GaugeModel
 		if err := rows.Scan(
@@ -427,15 +429,11 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 	if err := rows.Err(); err != nil {
 		logger.Sugar().Error("errors reading rows: %w", err)
 	}
-	rows, err = db.QueryContext(ctx, "SELECT name, value FROM counter")
+	rows, err = db.Query(ctx, "SELECT name, value FROM counter")
 	if err != nil {
 		return nil, nil, fmt.Errorf("counter table query error: %w", err)
 	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			logger.Sugar().Error("failed to close rows cursor: %w", err)
-		}
-	}()
+	defer rows.Close()
 
 	for rows.Next() {
 		var counter models.CounterModel
@@ -455,8 +453,7 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 }
 
 func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
-	logger := c.Logger
-	db := p.DB
+	db := p.pool
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
@@ -468,13 +465,13 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 			return fmt.Errorf("failed query: %w", err)
 		}
 		if !e {
-			_, err := db.ExecContext(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
+			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
 			if err != nil {
 				return fmt.Errorf("failed to insert counter metric '%s': %w", i.ID, err)
 			}
 		} else {
 			v += *i.Delta
-			_, err := db.ExecContext(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
+			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
 			if err != nil {
 				return fmt.Errorf("failed to update counter metric '%s': %w", i.ID, err)
 			}
@@ -483,33 +480,21 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 
 	if g != nil {
 		// processing gauge metrics
-		tx, err := db.BeginTx(ctx, nil)
+		tx, err := db.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to start transaction: %w", err)
 		}
 
-		stmt, err := tx.PrepareContext(ctx, "INSERT INTO gauge (name, value) VALUES($1, $2) "+
-			"ON CONFLICT (name) DO UPDATE SET value = $2")
-		if err != nil {
-			return fmt.Errorf("failed to prepare context: %w", err)
-		}
-
-		defer func() {
-			if err := stmt.Close(); err != nil {
-				logger.Sugar().Errorf("failed to close statement", zap.Error(err))
-			}
-		}()
-
+		querySQL := "INSERT INTO gauge (name, value) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2"
 		for _, i := range g {
-			_, err := stmt.ExecContext(ctx, i.ID, i.Value)
+			_, err := tx.Exec(ctx, querySQL, i.ID, i.Value)
 			if err != nil {
-				if err := tx.Rollback(); err != nil {
+				if err := tx.Rollback(ctx); err != nil {
 					return fmt.Errorf("failed to rollback transaction: %w", err)
 				}
-				return fmt.Errorf("failed to execute SQL statement: %w", err)
 			}
 		}
-		if err := tx.Commit(); err != nil {
+		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
 	}
