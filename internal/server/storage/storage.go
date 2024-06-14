@@ -11,7 +11,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vkupriya/go-metrics/internal/server/models"
@@ -349,14 +351,18 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 		return value, fmt.Errorf("failed query: %w", err)
 	}
 	if !e {
-		_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
-		if err != nil {
+		if err := retryOnConnErr(func() error {
+			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
+			return fmt.Errorf("%w", err)
+		}); err != nil {
 			return value, fmt.Errorf("failed to insert counter metric '%s': %w", name, err)
 		}
 	} else {
 		value += v
-		_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
-		if err != nil {
+		if err := retryOnConnErr(func() error {
+			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
+			return fmt.Errorf("%w", err)
+		}); err != nil {
 			return value, fmt.Errorf("failed to update counter metric '%s': %w", name, err)
 		}
 	}
@@ -371,9 +377,9 @@ func (p *PostgresStorage) GetCounterMetric(c *models.Config, name string) (int64
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
-	row := db.QueryRow(ctx, "SELECT value FROM counter WHERE name=$1", name)
-	err := row.Scan(&i)
-	if err != nil {
+	if err := retryOnConnErr(func() error {
+		return db.QueryRow(ctx, "SELECT value FROM counter WHERE name=$1", name).Scan(&i)
+	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return i, false, nil
 		}
@@ -389,9 +395,9 @@ func (p *PostgresStorage) GetGaugeMetric(c *models.Config, name string) (float64
 	defer cancel()
 	var f float64
 
-	row := db.QueryRow(ctx, "SELECT value FROM gauge WHERE name=$1", name)
-	err := row.Scan(&f)
-	if err != nil {
+	if err := retryOnConnErr(func() error {
+		return db.QueryRow(ctx, "SELECT value FROM gauge WHERE name=$1", name).Scan(&f)
+	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return f, false, nil
 		}
@@ -411,6 +417,7 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 	defer cancel()
 
 	rows, err := db.Query(ctx, "SELECT name, value FROM gauge")
+
 	if err != nil {
 		return nil, nil, fmt.Errorf("gauge table query error: %w", err)
 	}
@@ -494,9 +501,38 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 				}
 			}
 		}
-		if err := tx.Commit(ctx); err != nil {
+
+		if err := retryOnConnErr(func() error {
+			return tx.Commit(ctx)
+		}); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
+	}
+	return nil
+}
+
+func retryOnConnErr(f func() error) error {
+	var (
+		PgErr   *pgconn.PgError
+		retries = 3
+		retry   = 0
+		backoff = 2
+	)
+
+	for retry <= retries {
+		if err := f(); err != nil {
+			if errors.As(err, &PgErr) && pgerrcode.IsConnectionException(PgErr.Code) {
+				if retry == retries {
+					return fmt.Errorf("failed after maximum retries: %w", err)
+				}
+			} else {
+				return fmt.Errorf("failed to perform operation: %w", err)
+			}
+		} else {
+			break
+		}
+		time.Sleep(time.Duration(1+(retry*backoff)) * time.Second)
+		retry++
 	}
 	return nil
 }
