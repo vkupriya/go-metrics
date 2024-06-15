@@ -66,13 +66,13 @@ func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 		`CREATE TABLE IF NOT EXISTS gauge(
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			name VARCHAR(255) UNIQUE NOT NULL,
-			value DOUBLE PRECISION
+			value DOUBLE PRECISION NOT NULL
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS counter(
 			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			name VARCHAR(255) UNIQUE NOT NULL,
-			value BIGINT
+			value BIGINT NOT NULL
 		)`,
 	}
 
@@ -80,6 +80,14 @@ func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 		if _, err := tx.Exec(ctx, table); err != nil {
 			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
 		}
+	}
+	// creting index for name for both tables
+	if _, err := tx.Exec(ctx, "CREATE INDEX IF NOT EXISTS name_gauge ON gauge (name)"); err != nil {
+		return nil, fmt.Errorf("failed to execute index for table 'gauge': %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, "CREATE INDEX IF NOT EXISTS name_counter ON counter (name)"); err != nil {
+		return nil, fmt.Errorf("failed to execute index for table 'counter': %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -207,6 +215,10 @@ func (m *MemStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.M
 	return nil
 }
 
+func (m *MemStorage) PingStore(c *models.Config) error {
+	return nil
+}
+
 func (f *FileStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
 	f.gauge[name] = value
 	if c.StoreInterval == 0 {
@@ -322,6 +334,10 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 			}
 		}
 	}()
+}
+
+func (f *FileStorage) PingStore(c *models.Config) error {
+	return nil
 }
 
 func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
@@ -465,6 +481,11 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
 
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+
 	// processing counter metrics
 	for _, i := range cr {
 		v, e, err := p.GetCounterMetric(c, i.ID)
@@ -472,13 +493,13 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 			return fmt.Errorf("failed query: %w", err)
 		}
 		if !e {
-			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
+			_, err := tx.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
 			if err != nil {
 				return fmt.Errorf("failed to insert counter metric '%s': %w", i.ID, err)
 			}
 		} else {
 			v += *i.Delta
-			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
+			_, err := tx.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
 			if err != nil {
 				return fmt.Errorf("failed to update counter metric '%s': %w", i.ID, err)
 			}
@@ -487,10 +508,6 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 
 	if g != nil {
 		// processing gauge metrics
-		tx, err := db.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to start transaction: %w", err)
-		}
 
 		querySQL := "INSERT INTO gauge (name, value) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2"
 		for _, i := range g {
@@ -507,6 +524,22 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 		}); err != nil {
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
+	}
+	return nil
+}
+
+func (p *PostgresStorage) PingStore(c *models.Config) error {
+	logger := c.Logger
+	db := p.pool
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	if err := retryOnConnErr(func() error {
+		return db.Ping(ctx)
+	}); err != nil {
+		logger.Sugar().Debug("failed to connect to DB.", zap.Error(err))
+		return fmt.Errorf("%w", err)
 	}
 	return nil
 }

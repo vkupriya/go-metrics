@@ -93,6 +93,7 @@ func (c *Collector) StartTickers() error {
 }
 
 func (c *Collector) sendMetrics() error {
+	logger := c.config.Logger
 	// Sending counter metrics
 	metrics := make([]Metric, 0)
 	for k, v := range c.counter {
@@ -117,7 +118,7 @@ func (c *Collector) sendMetrics() error {
 		)
 		for retry <= retries {
 			if err := metricPost(metrics, c.config.metricHost); err != nil {
-				log.Print("failed http post metrics batch, retrying\n")
+				logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
 				if retry == retries {
 					return fmt.Errorf("failed http post metrics batch: %w", err)
 				}

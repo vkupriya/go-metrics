@@ -1,14 +1,9 @@
 package handlers
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"time"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"net/http"
 	"strconv"
@@ -42,6 +37,7 @@ type Storage interface {
 	GetGaugeMetric(c *models.Config, name string) (float64, bool, error)
 	GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error)
 	UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error
+	PingStore(c *models.Config) error
 }
 
 const (
@@ -93,7 +89,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	r.Use(mg.GzipHandle)
 
 	r.Get("/", mr.GetAllMetrics)
-	r.Get("/ping", mr.GetPostgresStatus)
+	r.Get("/ping", mr.PingStore)
 	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
 	r.Post("/value/", mr.GetMetricJSON)
 	r.Post("/update/", mr.UpdateMetricJSON)
@@ -296,7 +292,7 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 	gauge, counter, err := mr.store.GetAllMetrics(mr.config)
 	if err != nil {
-		logger.Sugar().Errorf("failed to get all metrics: %w", err)
+		logger.Sugar().Debug("failed to get all metrics", zap.Error(err))
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
@@ -324,33 +320,17 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
-
-	rw.WriteHeader(http.StatusOK)
+	// rw.WriteHeader(http.StatusOK)
 }
 
-func (mr *MetricResource) GetPostgresStatus(rw http.ResponseWriter, r *http.Request) {
+func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
-
-	db, err := sql.Open("pgx", mr.config.PostgresDSN)
-	if err != nil {
-		logger.Sugar().Errorf("failed to create PG DB connection pool: %v", err)
+	fmt.Println("we are in ping store func!")
+	if err := mr.store.PingStore(mr.config); err != nil {
+		logger.Sugar().Errorf("failed to connect to store: %v", err)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			logger.Sugar().Errorf("failed to close PG DB connection pool: %v", err)
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	if err = db.PingContext(ctx); err != nil {
-		logger.Sugar().Errorf("failed to connect to DB: %v", err)
-		http.Error(rw, "", http.StatusInternalServerError)
-		return
-	}
-
 	rw.WriteHeader(http.StatusOK)
 }
 
