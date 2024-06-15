@@ -81,14 +81,6 @@ func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
 		}
 	}
-	// creting index for name for both tables
-	if _, err := tx.Exec(ctx, "CREATE INDEX IF NOT EXISTS name_gauge ON gauge (name)"); err != nil {
-		return nil, fmt.Errorf("failed to execute index for table 'gauge': %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, "CREATE INDEX IF NOT EXISTS name_counter ON counter (name)"); err != nil {
-		return nil, fmt.Errorf("failed to execute index for table 'counter': %w", err)
-	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit PostgresDB transaction: %w", err)
@@ -476,15 +468,11 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 }
 
 func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	logger := c.Logger
 	db := p.pool
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
 	defer cancel()
-
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to start transaction: %w", err)
-	}
 
 	// processing counter metrics
 	for _, i := range cr {
@@ -492,14 +480,15 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 		if err != nil {
 			return fmt.Errorf("failed query: %w", err)
 		}
+		fmt.Println("Result of GetCounterMetric func: Value:", v, e)
 		if !e {
-			_, err := tx.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
+			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
 			if err != nil {
 				return fmt.Errorf("failed to insert counter metric '%s': %w", i.ID, err)
 			}
 		} else {
 			v += *i.Delta
-			_, err := tx.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
+			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
 			if err != nil {
 				return fmt.Errorf("failed to update counter metric '%s': %w", i.ID, err)
 			}
@@ -508,17 +497,20 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 
 	if g != nil {
 		// processing gauge metrics
-
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
 		querySQL := "INSERT INTO gauge (name, value) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2"
 		for _, i := range g {
 			_, err := tx.Exec(ctx, querySQL, i.ID, i.Value)
 			if err != nil {
+				logger.Sugar().Error(err)
 				if err := tx.Rollback(ctx); err != nil {
 					return fmt.Errorf("failed to rollback transaction: %w", err)
 				}
 			}
 		}
-
 		if err := retryOnConnErr(func() error {
 			return tx.Commit(ctx)
 		}); err != nil {

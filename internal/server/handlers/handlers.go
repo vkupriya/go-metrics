@@ -353,9 +353,21 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 	for _, metric := range req {
 		switch metric.MType {
 		case "gauge":
-			gauge = append(gauge, metric)
+			if metric.Value != nil {
+				gauge = append(gauge, metric)
+			} else {
+				logger.Sugar().Errorf("Missing value for gauge metric '%s'.", metric.ID)
+				rw.WriteHeader(http.StatusBadRequest)
+				return
+			}
 		case "counter":
-			counter = append(counter, metric)
+			if metric.Delta != nil {
+				counter = append(counter, metric)
+			} else {
+				logger.Sugar().Errorf("Missing delta for counter metric '%s'.", metric.ID)
+				rw.WriteHeader(http.StatusBadRequest)
+				return
+			}
 		default:
 			logger.Sugar().Errorf("wrong metric type '%s'", metric.MType)
 			rw.WriteHeader(http.StatusBadRequest)
