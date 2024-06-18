@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"slices"
 
 	"net/http"
 	"strconv"
@@ -339,8 +340,10 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 	logger := mr.config.Logger
 
 	var (
-		gauge   models.Metrics
-		counter models.Metrics
+		gauge         models.Metrics
+		counter       models.Metrics
+		gaugeUnique   []string
+		counterUnique []string
 	)
 
 	dec := json.NewDecoder(r.Body)
@@ -354,24 +357,28 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 		switch metric.MType {
 		case "gauge":
 			if metric.Value != nil {
-				gauge = append(gauge, metric)
+				if !slices.Contains(gaugeUnique, metric.MType) {
+					gauge = append(gauge, metric)
+					gaugeUnique = append(gaugeUnique, metric.MType)
+				} else {
+					logger.Sugar().Errorf("rejected duplicated gauge metric '%s' in the batch", metric.MType)
+				}
 			} else {
-				logger.Sugar().Errorf("Missing value for gauge metric '%s'.", metric.ID)
-				rw.WriteHeader(http.StatusBadRequest)
-				return
+				logger.Sugar().Errorf("missing value for gauge metric '%s'.", metric.ID)
 			}
 		case "counter":
 			if metric.Delta != nil {
-				counter = append(counter, metric)
+				if !slices.Contains(counterUnique, metric.MType) {
+					counter = append(counter, metric)
+					counterUnique = append(counterUnique, metric.MType)
+				} else {
+					logger.Sugar().Errorf("rejected duplicated counter metric '%s' in the batch", metric.MType)
+				}
 			} else {
-				logger.Sugar().Errorf("Missing delta for counter metric '%s'.", metric.ID)
-				rw.WriteHeader(http.StatusBadRequest)
-				return
+				logger.Sugar().Errorf("missing delta for counter metric '%s'.", metric.ID)
 			}
 		default:
 			logger.Sugar().Errorf("wrong metric type '%s'", metric.MType)
-			rw.WriteHeader(http.StatusBadRequest)
-			return
 		}
 	}
 	err := mr.store.UpdateBatch(mr.config, gauge, counter)
