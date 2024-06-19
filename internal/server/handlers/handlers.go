@@ -320,7 +320,6 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
-	// rw.WriteHeader(http.StatusOK)
 }
 
 func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
