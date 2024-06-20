@@ -130,7 +130,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 			}
 			_, err = mr.store.UpdateGaugeMetric(mr.config, mname, mv)
 			if err != nil {
-				logger.Sugar().Error("failed to update gauge metric", err)
+				logger.Sugar().Error("failed to update gauge metric", zap.Error(err))
 			}
 			rw.WriteHeader(http.StatusOK)
 
@@ -142,7 +142,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 			}
 			_, err = mr.store.UpdateCounterMetric(mr.config, mname, mv)
 			if err != nil {
-				logger.Sugar().Error("failed to update counter metric", err)
+				logger.Sugar().Error("failed to update counter metric", zap.Error(err))
 			}
 			rw.WriteHeader(http.StatusOK)
 		}
@@ -178,7 +178,7 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 		}
 		rv, err := mr.store.UpdateGaugeMetric(mr.config, mname, *req.Value)
 		if err != nil {
-			logger.Sugar().Error("failed to update gauge metric", err)
+			logger.Sugar().Error("failed to update gauge metric", zap.Error(err))
 		}
 		*req.Value = rv
 
@@ -189,7 +189,7 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 		}
 		rd, err := mr.store.UpdateCounterMetric(mr.config, mname, *req.Delta)
 		if err != nil {
-			logger.Sugar().Error("failed to update counter metric", err)
+			logger.Sugar().Error("failed to update counter metric", zap.Error(err))
 		}
 		*req.Delta = rd
 	}
@@ -219,7 +219,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := rw.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64))); err != nil {
-			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, err)
+			logger.Sugar().Errorf("failed to write into response writer value for metric %s", mname, zap.Error(err))
 			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
@@ -231,7 +231,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := rw.Write([]byte(strconv.FormatInt(v, 10))); err != nil {
-			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, err)
+			logger.Sugar().Errorf("failed to write into response writer value for metric %s: %v", mname, zap.Error(err))
 			http.Error(rw, "", http.StatusInternalServerError)
 			return
 		}
@@ -309,14 +309,14 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 	t, err := template.New("tmpl").Parse(tmpl)
 	if err != nil {
-		logger.Sugar().Errorf("failed to load http template: %v", err)
+		logger.Sugar().Errorf("failed to load http template.", zap.Error(err))
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
 
 	rw.Header().Set("Content-Type", "text/html")
 	if err := t.Execute(rw, allMetrics); err != nil {
-		logger.Sugar().Errorf("failed to execute http template: %v", err)
+		logger.Sugar().Errorf("failed to execute http template.", zap.Error(err))
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
@@ -326,7 +326,7 @@ func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
 	fmt.Println("we are in ping store func!")
 	if err := mr.store.PingStore(mr.config); err != nil {
-		logger.Sugar().Errorf("failed to connect to store: %v", err)
+		logger.Sugar().Errorf("failed to connect to store.", zap.Error(err))
 		http.Error(rw, "", http.StatusInternalServerError)
 		return
 	}
@@ -375,7 +375,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 	}
 	err := mr.store.UpdateBatch(mr.config, gauge, counter)
 	if err != nil {
-		logger.Sugar().Error(err)
+		logger.Sugar().Error(zap.Error(err))
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}

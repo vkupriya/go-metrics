@@ -122,7 +122,7 @@ func NewFileStorage(c *models.Config) (*FileStorage, error) {
 
 	defer func() {
 		if err := file.Close(); err != nil {
-			logger.Sugar().Error(err)
+			logger.Sugar().Error(zap.Error(err))
 		}
 	}()
 
@@ -288,7 +288,7 @@ func (f *FileStorage) SaveMetrics(c *models.Config) error {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			logger.Sugar().Error(err)
+			logger.Sugar().Error(zap.Error(err))
 		}
 	}()
 
@@ -442,7 +442,7 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 		gaugeAll[gauge.Name] = gauge.Value
 	}
 	if err := rows.Err(); err != nil {
-		logger.Sugar().Error("errors reading rows: %w", err)
+		logger.Sugar().Error("errors reading rows.", zap.Error(err))
 	}
 	rows, err = db.Query(ctx, "SELECT name, value FROM counter")
 	if err != nil {
@@ -461,7 +461,7 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 		counterAll[counter.Name] = counter.Value
 	}
 	if err := rows.Err(); err != nil {
-		logger.Sugar().Error("errors reading rows: %w", err)
+		logger.Sugar().Error("errors reading rows.", zap.Error(err))
 	}
 
 	return gaugeAll, counterAll, nil
@@ -505,7 +505,7 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 		for _, i := range g {
 			_, err := tx.Exec(ctx, querySQL, i.ID, i.Value)
 			if err != nil {
-				logger.Sugar().Error(err)
+				logger.Sugar().Error(zap.Error(err))
 				if err := tx.Rollback(ctx); err != nil {
 					return fmt.Errorf("failed to rollback transaction: %w", err)
 				}
