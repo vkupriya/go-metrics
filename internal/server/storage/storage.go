@@ -1,13 +1,20 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"time"
+
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vkupriya/go-metrics/internal/server/models"
 	"go.uber.org/zap"
@@ -20,6 +27,68 @@ type MemStorage struct {
 
 type FileStorage struct {
 	*MemStorage
+}
+
+type PostgresStorage struct {
+	pool *pgxpool.Pool
+}
+
+func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
+	poolCfg, err := pgxpool.ParseConfig(c.PostgresDSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse the DSN: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+
+	defer cancel()
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize a connection pool: %w", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to start a transaction: %w", err)
+	}
+
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			if !errors.Is(err, pgx.ErrTxClosed) {
+				log.Printf("failed to rollback the transaction: %v", err)
+			}
+		}
+	}()
+
+	createSchema := []string{
+		`CREATE TABLE IF NOT EXISTS gauge(
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			name VARCHAR(255) UNIQUE NOT NULL,
+			value DOUBLE PRECISION NOT NULL
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS counter(
+			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			name VARCHAR(255) UNIQUE NOT NULL,
+			value BIGINT NOT NULL
+		)`,
+	}
+
+	for _, table := range createSchema {
+		if _, err := tx.Exec(ctx, table); err != nil {
+			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit PostgresDB transaction: %w", err)
+	}
+
+	return &PostgresStorage{
+		pool: pool,
+	}, nil
 }
 
 func NewMemStorage(c *models.Config) (*MemStorage, error) {
@@ -53,7 +122,7 @@ func NewFileStorage(c *models.Config) (*FileStorage, error) {
 
 	defer func() {
 		if err := file.Close(); err != nil {
-			logger.Sugar().Error(err)
+			logger.Sugar().Error(zap.Error(err))
 		}
 	}()
 
@@ -106,24 +175,40 @@ func (m *MemStorage) UpdateCounterMetric(c *models.Config, name string, value in
 	return m.counter[name], nil
 }
 
-func (m *MemStorage) GetCounterMetric(name string) (int64, error) {
+func (m *MemStorage) GetCounterMetric(c *models.Config, name string) (int64, bool, error) {
 	v, ok := m.counter[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown metric %s ", name)
+	return v, false, fmt.Errorf("unknown metric %s ", name)
 }
 
-func (m *MemStorage) GetGaugeMetric(name string) (float64, error) {
+func (m *MemStorage) GetGaugeMetric(c *models.Config, name string) (float64, bool, error) {
 	v, ok := m.gauge[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown metric %s ", name)
+	return v, false, fmt.Errorf("unknown metric %s ", name)
 }
 
-func (m *MemStorage) GetAllValues() (map[string]float64, map[string]int64) {
-	return m.gauge, m.counter
+func (m *MemStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
+	return m.gauge, m.counter, nil
+}
+
+func (m *MemStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	if g != nil || cr != nil {
+		for _, i := range g {
+			m.gauge[i.ID] = *i.Value
+		}
+		for _, i := range cr {
+			m.counter[i.ID] += *i.Delta
+		}
+	}
+	return nil
+}
+
+func (m *MemStorage) PingStore(c *models.Config) error {
+	return nil
 }
 
 func (f *FileStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
@@ -148,24 +233,42 @@ func (f *FileStorage) UpdateCounterMetric(c *models.Config, name string, value i
 	return f.counter[name], nil
 }
 
-func (f *FileStorage) GetCounterMetric(name string) (int64, error) {
+func (f *FileStorage) GetCounterMetric(c *models.Config, name string) (int64, bool, error) {
 	v, ok := f.counter[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown counter metric %s ", name)
+	return v, false, fmt.Errorf("unknown counter metric %s ", name)
 }
 
-func (f *FileStorage) GetGaugeMetric(name string) (float64, error) {
+func (f *FileStorage) GetGaugeMetric(c *models.Config, name string) (float64, bool, error) {
 	v, ok := f.gauge[name]
 	if ok {
-		return v, nil
+		return v, true, nil
 	}
-	return v, fmt.Errorf("unknown gauge metric %s ", name)
+	return v, false, fmt.Errorf("unknown gauge metric %s ", name)
 }
 
-func (f *FileStorage) GetAllValues() (map[string]float64, map[string]int64) {
-	return f.gauge, f.counter
+func (f *FileStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
+	return f.gauge, f.counter, nil
+}
+
+func (f *FileStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	if g != nil || cr != nil {
+		for _, i := range g {
+			f.gauge[i.ID] = *i.Value
+		}
+		for _, i := range cr {
+			f.counter[i.ID] += *i.Delta
+		}
+		if c.StoreInterval == 0 {
+			err := f.SaveMetrics(c)
+			if err != nil {
+				return fmt.Errorf("failed to save metrics to file: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (f *FileStorage) SaveMetrics(c *models.Config) error {
@@ -185,7 +288,7 @@ func (f *FileStorage) SaveMetrics(c *models.Config) error {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			logger.Sugar().Error(err)
+			logger.Sugar().Error(zap.Error(err))
 		}
 	}()
 
@@ -209,7 +312,7 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 
 	logger := c.Logger
 	logger.Sugar().Infow(
-		`MemStorage's ticker started`,
+		`SaveMetricsTicker started`,
 		zap.Int64(`StoreInterval`, c.StoreInterval),
 	)
 
@@ -223,4 +326,238 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 			}
 		}
 	}()
+}
+
+func (f *FileStorage) PingStore(c *models.Config) error {
+	return nil
+}
+
+func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
+	db := p.pool
+	mtype := "gauge"
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+
+	querySQL := "INSERT INTO gauge (name, value) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2"
+
+	_, err := db.Exec(ctx, querySQL, name, value)
+	if err != nil {
+		return value, fmt.Errorf("failed to insert/update %s metric into Postgres DB: %w", mtype, err)
+	}
+	return value, nil
+}
+
+func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error) {
+	db := p.pool
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+
+	v, e, err := p.GetCounterMetric(c, name)
+	if err != nil {
+		return value, fmt.Errorf("failed query: %w", err)
+	}
+	if !e {
+		if err := retryOnConnErr(func() error {
+			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
+			return fmt.Errorf("%w", err)
+		}); err != nil {
+			return value, fmt.Errorf("failed to insert counter metric '%s': %w", name, err)
+		}
+	} else {
+		value += v
+		if err := retryOnConnErr(func() error {
+			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
+			return fmt.Errorf("%w", err)
+		}); err != nil {
+			return value, fmt.Errorf("failed to update counter metric '%s': %w", name, err)
+		}
+	}
+
+	return value, nil
+}
+
+func (p *PostgresStorage) GetCounterMetric(c *models.Config, name string) (int64, bool, error) {
+	db := p.pool
+	var i int64
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+
+	if err := retryOnConnErr(func() error {
+		return db.QueryRow(ctx, "SELECT value FROM counter WHERE name=$1", name).Scan(&i)
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return i, false, nil
+		}
+		return i, false, fmt.Errorf("failed to query counter table in Postgres DB: %w", err)
+	}
+	return i, true, nil
+}
+
+func (p *PostgresStorage) GetGaugeMetric(c *models.Config, name string) (float64, bool, error) {
+	db := p.pool
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+	var f float64
+
+	if err := retryOnConnErr(func() error {
+		return db.QueryRow(ctx, "SELECT value FROM gauge WHERE name=$1", name).Scan(&f)
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return f, false, nil
+		}
+		return f, false, fmt.Errorf("failed to query gauge table in Postgres DB: %w", err)
+	}
+	return f, true, nil
+}
+
+func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, map[string]int64, error) {
+	logger := c.Logger
+	gaugeAll := make(map[string]float64)
+	counterAll := make(map[string]int64)
+
+	db := p.pool
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+
+	rows, err := db.Query(ctx, "SELECT name, value FROM gauge")
+
+	if err != nil {
+		return nil, nil, fmt.Errorf("gauge table query error: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var gauge models.GaugeModel
+		if err := rows.Scan(
+			&gauge.Name,
+			&gauge.Value,
+		); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan row in gauge table: %w", err)
+		}
+		gaugeAll[gauge.Name] = gauge.Value
+	}
+	if err := rows.Err(); err != nil {
+		logger.Sugar().Error("errors reading rows.", zap.Error(err))
+	}
+	rows, err = db.Query(ctx, "SELECT name, value FROM counter")
+	if err != nil {
+		return nil, nil, fmt.Errorf("counter table query error: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var counter models.CounterModel
+		if err := rows.Scan(
+			&counter.Name,
+			&counter.Value,
+		); err != nil {
+			return nil, nil, fmt.Errorf("failed to scan row in gauge table: %w", err)
+		}
+		counterAll[counter.Name] = counter.Value
+	}
+	if err := rows.Err(); err != nil {
+		logger.Sugar().Error("errors reading rows.", zap.Error(err))
+	}
+
+	return gaugeAll, counterAll, nil
+}
+
+func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr models.Metrics) error {
+	logger := c.Logger
+	db := p.pool
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
+	defer cancel()
+
+	// processing counter metrics
+	for _, i := range cr {
+		v, e, err := p.GetCounterMetric(c, i.ID)
+		if err != nil {
+			return fmt.Errorf("failed query: %w", err)
+		}
+		fmt.Println("Result of GetCounterMetric func: Value:", v, e)
+		if !e {
+			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
+			if err != nil {
+				return fmt.Errorf("failed to insert counter metric '%s': %w", i.ID, err)
+			}
+		} else {
+			v += *i.Delta
+			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", v, i.ID)
+			if err != nil {
+				return fmt.Errorf("failed to update counter metric '%s': %w", i.ID, err)
+			}
+		}
+	}
+
+	if g != nil {
+		// processing gauge metrics
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
+		querySQL := "INSERT INTO gauge (name, value) VALUES($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2"
+		for _, i := range g {
+			_, err := tx.Exec(ctx, querySQL, i.ID, i.Value)
+			if err != nil {
+				logger.Sugar().Error(zap.Error(err))
+				if err := tx.Rollback(ctx); err != nil {
+					return fmt.Errorf("failed to rollback transaction: %w", err)
+				}
+			}
+		}
+		if err := retryOnConnErr(func() error {
+			return tx.Commit(ctx)
+		}); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+	}
+	return nil
+}
+
+func (p *PostgresStorage) PingStore(c *models.Config) error {
+	logger := c.Logger
+	db := p.pool
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	if err := retryOnConnErr(func() error {
+		return db.Ping(ctx)
+	}); err != nil {
+		logger.Sugar().Debug("failed to connect to DB.", zap.Error(err))
+		return fmt.Errorf("%w", err)
+	}
+	return nil
+}
+
+func retryOnConnErr(f func() error) error {
+	var (
+		PgErr   *pgconn.PgError
+		retries = 3
+		retry   = 0
+		backoff = 2
+	)
+
+	for retry <= retries {
+		if err := f(); err != nil {
+			if errors.As(err, &PgErr) && pgerrcode.IsConnectionException(PgErr.Code) {
+				if retry == retries {
+					return fmt.Errorf("failed after maximum retries: %w", err)
+				}
+			} else {
+				return fmt.Errorf("failed to perform operation: %w", err)
+			}
+		} else {
+			break
+		}
+		time.Sleep(time.Duration(1+(retry*backoff)) * time.Second)
+		retry++
+	}
+	return nil
 }

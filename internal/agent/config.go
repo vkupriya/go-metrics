@@ -3,11 +3,15 @@ package agent
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
+
+	"go.uber.org/zap"
 )
 
 type Config struct {
+	Logger         *zap.Logger
 	metricHost     string
 	reportInterval int64
 	pollInterval   int64
@@ -46,10 +50,17 @@ func NewConfig() (*Config, error) {
 		reportInterval = &envReportInt
 	}
 
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize Logger: %w", err)
+	}
+
 	return &Config{
 		metricHost:     *metricHost,
 		reportInterval: *reportInterval,
 		pollInterval:   *pollInterval,
 		httpTimeout:    httpTimeout,
+		Logger:         logger,
 	}, nil
 }

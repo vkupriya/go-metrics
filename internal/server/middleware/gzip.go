@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/vkupriya/go-metrics/internal/server/models"
 )
 
@@ -46,12 +48,12 @@ func (l *MiddlewareGzip) GzipHandle(h http.Handler) http.Handler {
 			gr, err := gzip.NewReader(r.Body)
 			defer func() {
 				if err := gr.Close(); err != nil {
-					logger.Sugar().Error(err)
+					logger.Sugar().Error(zap.Error(err))
 					http.Error(w, "", http.StatusInternalServerError)
 				}
 			}()
 			if err != nil {
-				logger.Sugar().Error(err)
+				logger.Sugar().Error(zap.Error(err))
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 			}
@@ -60,7 +62,6 @@ func (l *MiddlewareGzip) GzipHandle(h http.Handler) http.Handler {
 
 		supportsGzip := strings.Contains(r.Header.Get("Accept-Encoding"), compressionLib)
 		if supportsGzip {
-			logger.Sugar().Info("performing gzip compression")
 			gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 			if err != nil {
 				logger.Sugar().Error("error creating gzip writer.")
@@ -68,7 +69,7 @@ func (l *MiddlewareGzip) GzipHandle(h http.Handler) http.Handler {
 			w.Header().Set("Content-Encoding", compressionLib)
 			defer func() {
 				if err := gz.Close(); err != nil {
-					logger.Sugar().Error(err)
+					logger.Sugar().Error(zap.Error(err))
 					http.Error(w, "", http.StatusInternalServerError)
 				}
 			}()
