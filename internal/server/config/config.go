@@ -23,6 +23,7 @@ func NewConfig() (*models.Config, error) {
 	p := flag.String("f", "/tmp/metrics-db.json", "File storage path.")
 	r := flag.Bool("r", true, "Restore in memory DB at start up.")
 	d := flag.String("d", "", "PostgreSQL DSN")
+	k := flag.String("k", "", "Key for HMAC signature ")
 
 	flag.Parse()
 
@@ -53,6 +54,9 @@ func NewConfig() (*models.Config, error) {
 		r = &envRestore
 	}
 
+	if envKey, ok := os.LookupEnv("KEY"); ok {
+		k = &envKey
+	}
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
 	if err != nil {
@@ -67,5 +71,6 @@ func NewConfig() (*models.Config, error) {
 		Logger:          logger,
 		PostgresDSN:     *d,
 		ContextTimeout:  defaultContextTimeout,
+		HashKey:         *k,
 	}, nil
 }

@@ -6,6 +6,7 @@ import (
 
 type Config struct {
 	Logger          *zap.Logger
+	HashKey         string
 	Address         string
 	FileStoragePath string
 	PostgresDSN     string

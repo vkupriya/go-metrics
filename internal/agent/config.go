@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Logger         *zap.Logger
 	metricHost     string
+	HashKey        string
 	reportInterval int64
 	pollInterval   int64
 	httpTimeout    int64
@@ -28,6 +29,7 @@ func NewConfig() (*Config, error) {
 	metricHost := flag.String("a", "localhost:8080", "Address and port of the metric server.")
 	reportInterval := flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
 	pollInterval := flag.Int64("p", pollIntDefault, "Metric collection interval in seconds")
+	key := flag.String("k", "", "Hash key")
 	flag.Parse()
 
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
@@ -50,6 +52,10 @@ func NewConfig() (*Config, error) {
 		reportInterval = &envReportInt
 	}
 
+	if envKey, ok := os.LookupEnv("KEY"); ok {
+		key = &envKey
+	}
+
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
 	if err != nil {
@@ -62,5 +68,6 @@ func NewConfig() (*Config, error) {
 		pollInterval:   *pollInterval,
 		httpTimeout:    httpTimeout,
 		Logger:         logger,
+		HashKey:        *key,
 	}, nil
 }
