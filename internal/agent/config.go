@@ -40,7 +40,7 @@ func NewConfig() (*Config, error) {
 	}
 
 	if envRateLimit, ok := os.LookupEnv("RATE_LIMIT"); ok {
-		envRateLimit, err := strconv.ParseInt(envRateLimit, 10, 0)
+		envRateLimit, err := strconv.Atoi(envRateLimit)
 		if err != nil {
 			return nil, errors.New("failed to convert RATE_LIMIT to integer")
 		}
@@ -48,7 +48,7 @@ func NewConfig() (*Config, error) {
 	}
 
 	if envPoll, ok := os.LookupEnv("POLL_INTERVAL"); ok {
-		envPollInt, err := strconv.Atoi(envPoll)
+		envPollInt, err := strconv.ParseInt(envPoll, 10, 64)
 		if err != nil {
 			return nil, errors.New("failed to convert POLL_INTERVAL to integer")
 		}
