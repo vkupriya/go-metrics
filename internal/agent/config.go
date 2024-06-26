@@ -18,7 +18,7 @@ type Config struct {
 	reportInterval int64
 	pollInterval   int64
 	httpTimeout    int64
-	rateLimit      int64
+	rateLimit      int
 }
 
 func NewConfig() (*Config, error) {
@@ -26,13 +26,13 @@ func NewConfig() (*Config, error) {
 		pollIntDefault   int64 = 2
 		reportIntDefault int64 = 10
 		httpTimeout      int64 = 30
-		rateLimitDefault int64 = 3
+		rateLimitDefault int   = 3
 	)
 	var mx sync.RWMutex
 	metricHost := flag.String("a", "localhost:8080", "Address and port of the metric server.")
 	reportInterval := flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
 	pollInterval := flag.Int64("p", pollIntDefault, "Metric collection interval in seconds.")
-	rateLimit := flag.Int64("l", rateLimitDefault, "Rate Limit for concurrent server requests.")
+	rateLimit := flag.Int("l", rateLimitDefault, "Rate Limit for concurrent server requests.")
 	flag.Parse()
 
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
@@ -48,7 +48,7 @@ func NewConfig() (*Config, error) {
 	}
 
 	if envPoll, ok := os.LookupEnv("POLL_INTERVAL"); ok {
-		envPollInt, err := strconv.ParseInt(envPoll, 10, 64)
+		envPollInt, err := strconv.Atoi(envPoll)
 		if err != nil {
 			return nil, errors.New("failed to convert POLL_INTERVAL to integer")
 		}

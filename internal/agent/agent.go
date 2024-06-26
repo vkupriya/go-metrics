@@ -111,8 +111,7 @@ func (c *Collector) StartTickers() error {
 	sendTicker := time.NewTicker(time.Duration(c.config.reportInterval) * time.Second)
 	defer sendTicker.Stop()
 
-	var w int64
-	for w = 1; w <= c.config.rateLimit; w++ {
+	for w := 1; w <= c.config.rateLimit; w++ {
 		go c.sendMetrics(inputCh)
 	}
 
