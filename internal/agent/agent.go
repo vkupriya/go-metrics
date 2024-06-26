@@ -8,9 +8,13 @@ import (
 	"log"
 	"math/rand"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
+	"go.uber.org/zap"
 )
 
 type Collector struct {
@@ -39,6 +43,7 @@ func (c *Collector) collectMetrics() {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
+	c.config.Mutex.Lock()
 	c.gauge[`Alloc`] = float64(memStats.Alloc)
 	c.gauge[`BuckHashSys`] = float64(memStats.BuckHashSys)
 	c.gauge[`Frees`] = float64(memStats.Frees)
@@ -69,10 +74,36 @@ func (c *Collector) collectMetrics() {
 	c.gauge[`RandomValue`] = rand.Float64()
 
 	c.counter[`PollCount`]++
+	c.config.Mutex.Unlock()
+}
+
+func (c *Collector) collectPsutilMetrics() {
+	logger := c.config.Logger
+
+	v, err := mem.VirtualMemory()
+	if err != nil {
+		logger.Sugar().Error(`Cannot get virtual memory`, zap.Error(err))
+		return
+	}
+
+	cp, err := cpu.Times(true)
+	if err != nil {
+		logger.Sugar().Error(`Cannot get cpu info`, zap.Error(err))
+		return
+	}
+	c.config.Mutex.Lock()
+	c.gauge[`TotalMemory`] = float64(v.Total)
+	c.gauge[`FreeMemory`] = float64(v.Free)
+	c.config.Mutex.Unlock()
+
+	for i := 0; i < len(cp); i++ {
+		c.gauge[`CPUutilization`+strconv.Itoa(i)] = float64(cp[i].System)
+	}
 }
 
 func (c *Collector) StartTickers() error {
 	// Start tickers
+	inputCh := make(chan []Metric)
 
 	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
 	defer collectTicker.Stop()
@@ -80,21 +111,25 @@ func (c *Collector) StartTickers() error {
 	sendTicker := time.NewTicker(time.Duration(c.config.reportInterval) * time.Second)
 	defer sendTicker.Stop()
 
+	var w int64
+	for w = 1; w <= c.config.rateLimit; w++ {
+		go c.sendMetrics(inputCh)
+	}
+
 	for {
 		select {
 		case <-collectTicker.C:
 			c.collectMetrics()
+			c.collectPsutilMetrics()
 		case <-sendTicker.C:
-			if err := c.sendMetrics(); err != nil {
-				return fmt.Errorf("error while sending metrics to server: %w", err)
-			}
+			c.dispatcher(inputCh)
 		}
 	}
 }
 
-func (c *Collector) sendMetrics() error {
-	logger := c.config.Logger
-	// Sending counter metrics
+func (c *Collector) dispatcher(ch chan []Metric) {
+	c.config.Mutex.Lock()
+	defer c.config.Mutex.Unlock()
 	metrics := make([]Metric, 0)
 	for k, v := range c.counter {
 		mtype := "counter"
@@ -110,26 +145,34 @@ func (c *Collector) sendMetrics() error {
 		value := v
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: &value})
 	}
-	if metrics != nil {
-		var (
-			retries    = 3
-			retry      = 0
-			retryDelay = 2
-		)
-		for retry <= retries {
-			if err := metricPost(metrics, c.config.metricHost); err != nil {
-				logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
-				if retry == retries {
-					return fmt.Errorf("failed http post metrics batch: %w", err)
+	ch <- metrics
+}
+
+func (c *Collector) sendMetrics(ch chan []Metric) {
+	logger := c.config.Logger
+	// Sending counter metrics
+
+	for metrics := range ch {
+		if metrics != nil {
+			var (
+				retries    = 3
+				retry      = 0
+				retryDelay = 2
+			)
+			for retry <= retries {
+				if err := metricPost(metrics, c.config.metricHost); err != nil {
+					logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
+					if retry == retries {
+						break
+					}
+				} else {
+					break
 				}
-			} else {
-				break
+				time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
+				retry++
 			}
-			time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
-			retry++
 		}
 	}
-	return nil
 }
 
 func metricPost(m []Metric, h string) error {
