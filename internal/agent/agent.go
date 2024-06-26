@@ -96,7 +96,8 @@ func (c *Collector) collectPsutilMetrics() {
 	c.gauge[`FreeMemory`] = float64(v.Free)
 	c.config.Mutex.Unlock()
 
-	for i := 0; i < len(cp); i++ {
+	var i int
+	for i = 0; i < len(cp); i++ {
 		c.gauge[`CPUutilization`+strconv.Itoa(i)] = float64(cp[i].System)
 	}
 }
