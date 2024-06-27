@@ -164,7 +164,7 @@ func (c *Collector) sendMetrics(ch chan []Metric) {
 				retryDelay = 2
 			)
 			for retry <= retries {
-				if err := metricPost(metrics, c.config.metricHost); err != nil {
+				if err := c.metricPost(metrics, c.config.metricHost); err != nil {
 					logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
 					if retry == retries {
 						break
