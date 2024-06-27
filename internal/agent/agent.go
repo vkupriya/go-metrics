@@ -3,9 +3,9 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"runtime"
 	"strconv"
@@ -101,10 +101,9 @@ func (c *Collector) collectPsutilMetrics() {
 	}
 }
 
-func (c *Collector) StartTickers() error {
+func (c *Collector) StartTickers(ctx context.Context) error {
 	// Start tickers
 	inputCh := make(chan []Metric)
-
 	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
 	defer collectTicker.Stop()
 
@@ -117,6 +116,9 @@ func (c *Collector) StartTickers() error {
 
 	for {
 		select {
+		case <-ctx.Done():
+			close(inputCh)
+			return nil
 		case <-collectTicker.C:
 			c.collectMetrics()
 			c.collectPsutilMetrics()
@@ -211,13 +213,16 @@ func metricPost(m []Metric, h string) error {
 }
 
 func Start() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	c, err := NewConfig()
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to initialize config: %w", err)
 	}
 
 	collector := NewCollector(*c)
-	if err := collector.StartTickers(); err != nil {
+	if err := collector.StartTickers(ctx); err != nil {
 		return err
 	}
 
