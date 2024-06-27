@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -176,7 +179,7 @@ func (c *Collector) sendMetrics(ch chan []Metric) {
 	}
 }
 
-func metricPost(m []Metric, h string) error {
+func (c *Collector) metricPost(m []Metric, h string) error {
 	const httpTimeout int = 30
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
@@ -187,6 +190,7 @@ func metricPost(m []Metric, h string) error {
 	if err != nil {
 		return fmt.Errorf("error encoding JSON response for metrics batch: %w", err)
 	}
+
 	var gz bytes.Buffer
 	w := gzip.NewWriter(&gz)
 	_, err = w.Write(body)
@@ -197,6 +201,9 @@ func metricPost(m []Metric, h string) error {
 		return fmt.Errorf("failed to close gzip.NewWriter for metrics batch: %w", err)
 	}
 
+	if c.config.HashKey != "" {
+		c.HashHeader(client, gz.Bytes())
+	}
 	resp, err := client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
@@ -210,6 +217,14 @@ func metricPost(m []Metric, h string) error {
 	fmt.Printf("Sent metrics batch Status code: %d\n", resp.StatusCode())
 
 	return nil
+}
+
+func (c *Collector) HashHeader(req *resty.Client, body []byte) {
+	h := hmac.New(sha256.New, []byte(c.config.HashKey))
+	h.Write(body)
+	hdst := h.Sum(nil)
+
+	req.Header.Set(`HashSHA256`, hex.EncodeToString(hdst))
 }
 
 func Start() error {

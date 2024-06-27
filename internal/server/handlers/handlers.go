@@ -83,9 +83,11 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
 	ml := mw.NewMiddlewareLogger(mr.config)
+	mh := mw.NewMiddlewareHash(mr.config)
 	mg := mw.NewMiddlewareGzip(mr.config)
 
 	r.Use(ml.Logging)
+	r.Use(mh.Hash)
 	r.Use(mg.GzipHandle)
 
 	r.Get("/", mr.GetAllMetrics)
@@ -341,7 +343,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 		gauge   models.Metrics
 		counter models.Metrics
 	)
-
+	fmt.Println(r.Header)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
 		logger.Sugar().Debug("cannot decode request JSON body", zap.Error(err))
