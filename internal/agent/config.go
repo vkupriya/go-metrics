@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 
 	"go.uber.org/zap"
 )
 
 type Config struct {
 	Logger         *zap.Logger
-	Mutex          *sync.RWMutex
 	metricHost     string
 	HashKey        string
 	reportInterval int64
@@ -29,7 +27,7 @@ func NewConfig() (*Config, error) {
 		httpTimeout      int64 = 30
 		rateLimitDefault int   = 3
 	)
-	var mx sync.RWMutex
+
 	metricHost := flag.String("a", "localhost:8080", "Address and port of the metric server.")
 	reportInterval := flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
 	pollInterval := flag.Int64("p", pollIntDefault, "Metric collection interval in seconds.")
@@ -82,7 +80,6 @@ func NewConfig() (*Config, error) {
 		httpTimeout:    httpTimeout,
 		rateLimit:      *rateLimit,
 		Logger:         logger,
-		Mutex:          &mx,
 		HashKey:        *key,
 	}, nil
 }

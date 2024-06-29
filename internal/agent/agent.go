@@ -12,18 +12,22 @@ import (
 	"math/rand"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/go-resty/resty/v2"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
-	"go.uber.org/zap"
 )
 
 type Collector struct {
-	gauge   map[string]float64
-	counter map[string]int64
-	config  Config
+	gauge        map[string]float64
+	counter      map[string]int64
+	config       Config
+	gaugeMutex   sync.RWMutex
+	counterMutex sync.RWMutex
 }
 
 type Metric struct {
@@ -34,11 +38,11 @@ type Metric struct {
 
 }
 
-func NewCollector(c Config) *Collector {
+func NewCollector(cfg Config) *Collector {
 	return &Collector{
 		gauge:   make(map[string]float64),
 		counter: make(map[string]int64),
-		config:  c,
+		config:  cfg,
 	}
 }
 
@@ -46,7 +50,8 @@ func (c *Collector) collectMetrics() {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
-	c.config.Mutex.Lock()
+	c.gaugeMutex.Lock()
+	defer c.gaugeMutex.Unlock()
 	c.gauge[`Alloc`] = float64(memStats.Alloc)
 	c.gauge[`BuckHashSys`] = float64(memStats.BuckHashSys)
 	c.gauge[`Frees`] = float64(memStats.Frees)
@@ -76,110 +81,137 @@ func (c *Collector) collectMetrics() {
 	c.gauge[`TotalAlloc`] = float64(memStats.TotalAlloc)
 	c.gauge[`RandomValue`] = rand.Float64()
 
+	c.counterMutex.Lock()
+	defer c.counterMutex.Unlock()
 	c.counter[`PollCount`]++
-	c.config.Mutex.Unlock()
 }
 
 func (c *Collector) collectPsutilMetrics() {
-	logger := c.config.Logger
+	v, _ := mem.VirtualMemory()
 
-	v, err := mem.VirtualMemory()
-	if err != nil {
-		logger.Sugar().Error(`Cannot get virtual memory`, zap.Error(err))
-		return
-	}
+	cp, _ := cpu.Times(true)
 
-	cp, err := cpu.Times(true)
-	if err != nil {
-		logger.Sugar().Error(`Cannot get cpu info`, zap.Error(err))
-		return
-	}
-	c.config.Mutex.Lock()
+	c.gaugeMutex.Lock()
+	defer c.gaugeMutex.Unlock()
 	c.gauge[`TotalMemory`] = float64(v.Total)
 	c.gauge[`FreeMemory`] = float64(v.Free)
-	c.config.Mutex.Unlock()
 
 	for i := range len(cp) {
 		c.gauge[`CPUutilization`+strconv.Itoa(i)] = float64(cp[i].System)
 	}
 }
 
-func (c *Collector) StartTickers(ctx context.Context) error {
-	// Start tickers
-	inputCh := make(chan []Metric)
-	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
-	defer collectTicker.Stop()
-
+func (c *Collector) startSender(ctx context.Context, ch chan []Metric) {
 	sendTicker := time.NewTicker(time.Duration(c.config.reportInterval) * time.Second)
 	defer sendTicker.Stop()
-
-	for w := 1; w <= c.config.rateLimit; w++ {
-		go c.sendMetrics(inputCh)
-	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			close(inputCh)
-			return nil
-		case <-collectTicker.C:
-			c.collectMetrics()
-			c.collectPsutilMetrics()
+			close(ch)
+			return
 		case <-sendTicker.C:
-			c.dispatcher(inputCh)
+			c.dispatcher(ch)
 		}
 	}
 }
 
+func (c *Collector) startCollector(ctx context.Context) {
+	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
+	defer collectTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-collectTicker.C:
+			c.collectMetrics()
+			c.collectPsutilMetrics()
+		}
+	}
+}
+
+func (c *Collector) StartTickers(ctx context.Context) error {
+	// Start tickers
+	inputCh := make(chan []Metric, c.config.rateLimit)
+
+	g := new(errgroup.Group)
+
+	go c.startCollector(ctx)
+
+	go c.startSender(ctx, inputCh)
+
+	for w := 1; w <= c.config.rateLimit; w++ {
+		g.Go(func() error {
+			if err := c.sendMetrics(inputCh); err != nil {
+				return fmt.Errorf("failed to send metrics: %w", err)
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("failed to run collector/sender go routines: %w", err)
+	}
+	return nil
+}
+
 func (c *Collector) dispatcher(ch chan []Metric) {
-	c.config.Mutex.Lock()
-	defer c.config.Mutex.Unlock()
+	logger := c.config.Logger
+	c.counterMutex.Lock()
+	defer c.counterMutex.Unlock()
 	metrics := make([]Metric, 0)
 	for k, v := range c.counter {
 		mtype := "counter"
 		delta := v
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: &delta})
 	}
-	// Resetting PollCount to 0
-	c.counter["PollCount"] = 0
 
 	// Sending gauge metrics
+	c.gaugeMutex.Lock()
+	defer c.gaugeMutex.Unlock()
 	for k, v := range c.gauge {
 		mtype := "gauge"
 		value := v
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: &value})
 	}
+	logger.Sugar().Debug("Posting metrics to channel")
 	ch <- metrics
 }
 
-func (c *Collector) sendMetrics(ch chan []Metric) {
+func (c *Collector) sendMetrics(ch chan []Metric) error {
 	logger := c.config.Logger
 	// Sending counter metrics
+	const (
+		retries    = 3
+		retryDelay = 2
+	)
+	var retry int
 
 	for metrics := range ch {
-		if metrics != nil {
-			var (
-				retries    = 3
-				retry      = 0
-				retryDelay = 2
-			)
-			for retry <= retries {
-				if err := c.metricPost(metrics, c.config.metricHost); err != nil {
-					logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
-					if retry == retries {
-						break
-					}
-				} else {
-					break
+		retry = 0
+		for retry <= retries {
+			if err := c.metricPost(metrics, c.config.metricHost); err != nil {
+				logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
+				if retry == retries {
+					return fmt.Errorf("failed to http post metrics after %d", retries)
 				}
-				time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
-				retry++
+			} else {
+				break
 			}
+			time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
+			retry++
 		}
 	}
+	// Resetting PollCount to 0 on successful Post
+	c.counterMutex.Lock()
+	defer c.counterMutex.Unlock()
+	c.counter["PollCount"] = 0
+	return nil
 }
 
 func (c *Collector) metricPost(m []Metric, h string) error {
+	logger := c.config.Logger
 	const httpTimeout int = 30
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
@@ -202,7 +234,7 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 	}
 
 	if c.config.HashKey != "" {
-		c.HashHeader(client, gz.Bytes())
+		c.hashHeader(client, gz.Bytes())
 	}
 	resp, err := client.R().
 		SetHeader("Content-Type", "application/json").
@@ -214,12 +246,12 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 		return fmt.Errorf("error to do http post: %w", err)
 	}
 
-	fmt.Printf("Sent metrics batch Status code: %d\n", resp.StatusCode())
+	logger.Sugar().Infof("sent metrics batch Status code: %d\n", resp.StatusCode())
 
 	return nil
 }
 
-func (c *Collector) HashHeader(req *resty.Client, body []byte) {
+func (c *Collector) hashHeader(req *resty.Client, body []byte) {
 	h := hmac.New(sha256.New, []byte(c.config.HashKey))
 	h.Write(body)
 	hdst := h.Sum(nil)
@@ -238,7 +270,8 @@ func Start() error {
 
 	collector := NewCollector(*c)
 	if err := collector.StartTickers(ctx); err != nil {
-		return err
+		fmt.Println("Error in Start Tickers")
+		return fmt.Errorf("failed to run tickers: %w", err)
 	}
 
 	return nil
