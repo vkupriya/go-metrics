@@ -43,6 +43,7 @@ func (m *MiddlewareHash) HashCheck(h http.Handler) http.Handler {
 		if err != nil {
 			logger.Sugar().Debug("failed to decode hex string", zap.Error(err))
 			http.Error(w, "", http.StatusBadRequest)
+			return
 		}
 
 		b, err := io.ReadAll(r.Body)
