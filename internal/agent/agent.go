@@ -259,8 +259,8 @@ func (c *Collector) hashHeader(req *resty.Client, body []byte) {
 	req.Header.Set(`HashSHA256`, hex.EncodeToString(hdst))
 }
 
-func Start() error {
-	ctx, cancel := context.WithCancel(context.Background())
+func Start(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	c, err := NewConfig()
