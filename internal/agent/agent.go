@@ -191,11 +191,12 @@ func (c *Collector) sendMetrics(ch chan []Metric) error {
 	for metrics := range ch {
 		retry = 0
 		for retry <= retries {
+			if retry == retries {
+				return fmt.Errorf("failed to send metrics after %d", retries)
+			}
+
 			if err := c.metricPost(metrics, c.config.metricHost); err != nil {
 				logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
-				if retry == retries {
-					return fmt.Errorf("failed to http post metrics after %d", retries)
-				}
 			} else {
 				break
 			}
