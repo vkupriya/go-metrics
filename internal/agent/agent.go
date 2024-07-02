@@ -210,8 +210,8 @@ func (c *Collector) sendMetrics(ctx context.Context, ch chan []Metric) error {
 			}
 			// Resetting PollCount to 0 on successful Post
 			c.counterMutex.Lock()
-			defer c.counterMutex.Unlock()
 			c.counter["PollCount"] = 0
+			c.counterMutex.Unlock()
 		}
 	}
 }
