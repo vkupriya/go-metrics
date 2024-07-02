@@ -26,8 +26,8 @@ type Collector struct {
 	gauge        map[string]float64
 	counter      map[string]int64
 	config       Config
-	gaugeMutex   sync.RWMutex
-	counterMutex sync.RWMutex
+	gaugeMutex   sync.Mutex
+	counterMutex sync.Mutex
 }
 
 type Metric struct {
@@ -135,22 +135,22 @@ func (c *Collector) StartTickers(ctx context.Context) error {
 	// Start tickers
 	inputCh := make(chan []Metric, c.config.rateLimit)
 
-	g := new(errgroup.Group)
+	eg, egCtx := errgroup.WithContext(ctx)
 
 	go c.startCollector(ctx)
 
 	go c.startSender(ctx, inputCh)
 
 	for w := 1; w <= c.config.rateLimit; w++ {
-		g.Go(func() error {
-			if err := c.sendMetrics(inputCh); err != nil {
+		eg.Go(func() error {
+			if err := c.sendMetrics(egCtx, inputCh); err != nil {
 				return fmt.Errorf("failed to send metrics: %w", err)
 			}
 			return nil
 		})
 	}
 
-	if err := g.Wait(); err != nil {
+	if err := eg.Wait(); err != nil {
 		return fmt.Errorf("failed to run collector/sender go routines: %w", err)
 	}
 	return nil
@@ -179,7 +179,7 @@ func (c *Collector) dispatcher(ch chan []Metric) {
 	ch <- metrics
 }
 
-func (c *Collector) sendMetrics(ch chan []Metric) error {
+func (c *Collector) sendMetrics(ctx context.Context, ch chan []Metric) error {
 	logger := c.config.Logger
 	// Sending counter metrics
 	const (
@@ -187,28 +187,33 @@ func (c *Collector) sendMetrics(ch chan []Metric) error {
 		retryDelay = 2
 	)
 	var retry int
+	var metrics []Metric
 
-	for metrics := range ch {
-		retry = 0
-		for retry <= retries {
-			if retry == retries {
-				return fmt.Errorf("failed to send metrics after %d", retries)
-			}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case metrics = <-ch:
+			retry = 0
+			for retry <= retries {
+				if retry == retries {
+					return fmt.Errorf("failed to send metrics after %d", retries)
+				}
 
-			if err := c.metricPost(metrics, c.config.metricHost); err != nil {
-				logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
-			} else {
-				break
+				if err := c.metricPost(metrics, c.config.metricHost); err != nil {
+					logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
+				} else {
+					break
+				}
+				time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
+				retry++
 			}
-			time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
-			retry++
+			// Resetting PollCount to 0 on successful Post
+			c.counterMutex.Lock()
+			defer c.counterMutex.Unlock()
+			c.counter["PollCount"] = 0
 		}
 	}
-	// Resetting PollCount to 0 on successful Post
-	c.counterMutex.Lock()
-	defer c.counterMutex.Unlock()
-	c.counter["PollCount"] = 0
-	return nil
 }
 
 func (c *Collector) metricPost(m []Metric, h string) error {

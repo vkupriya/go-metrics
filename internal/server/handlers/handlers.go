@@ -87,8 +87,6 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	mg := mw.NewMiddlewareGzip(mr.config)
 
 	r.Use(ml.Logging)
-	// r.Use(mh.Hash)
-	// r.Use(mg.GzipHandle)
 
 	r.Group(func(r chi.Router) {
 		r.Use(mh.HashSend)
