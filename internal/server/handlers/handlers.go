@@ -83,18 +83,27 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
 	ml := mw.NewMiddlewareLogger(mr.config)
+	mh := mw.NewMiddlewareHash(mr.config)
 	mg := mw.NewMiddlewareGzip(mr.config)
 
 	r.Use(ml.Logging)
-	r.Use(mg.GzipHandle)
 
-	r.Get("/", mr.GetAllMetrics)
-	r.Get("/ping", mr.PingStore)
-	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
-	r.Post("/value/", mr.GetMetricJSON)
-	r.Post("/update/", mr.UpdateMetricJSON)
-	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
-	r.Post("/updates/", mr.UpdateBatchJSON)
+	r.Group(func(r chi.Router) {
+		r.Use(mh.HashSend)
+		r.Use(mg.GzipHandle)
+		r.Get("/", mr.GetAllMetrics)
+		r.Get("/ping", mr.PingStore)
+		r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
+	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(mh.HashCheck)
+		r.Use(mg.GzipHandle)
+		r.Post("/value/", mr.GetMetricJSON)
+		r.Post("/update/", mr.UpdateMetricJSON)
+		r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
+		r.Post("/updates/", mr.UpdateBatchJSON)
+	})
 
 	return r
 }
