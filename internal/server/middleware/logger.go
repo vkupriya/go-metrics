@@ -17,7 +17,6 @@ type (
 	loggingResponseWriter struct {
 		http.ResponseWriter
 		responseData *responseData
-		done         bool
 	}
 
 	MiddlewareLogger struct {
@@ -47,6 +46,7 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 
 func (m *MiddlewareLogger) Logging(h http.Handler) http.Handler {
 	logFn := func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("in Logger middleware.")
 		logger := m.config.Logger
 
 		start := time.Now()
@@ -59,7 +59,6 @@ func (m *MiddlewareLogger) Logging(h http.Handler) http.Handler {
 		lw := loggingResponseWriter{
 			ResponseWriter: w,
 			responseData:   responseData,
-			done:           false,
 		}
 
 		uri := r.RequestURI
