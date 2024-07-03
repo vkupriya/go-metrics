@@ -29,7 +29,7 @@ func (m *MiddlewareHash) HashCheck(h http.Handler) http.Handler {
 
 		reqHash := r.Header.Get("HashSHA256")
 
-		if m.config.HashKey != "" || reqHash != "" {
+		if m.config.HashKey != "" && reqHash != "" {
 			sig, err := hex.DecodeString(reqHash)
 			if err != nil {
 				http.Error(w, "failed to decode hex string", http.StatusBadRequest)
