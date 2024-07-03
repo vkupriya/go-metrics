@@ -87,23 +87,17 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	mg := mw.NewMiddlewareGzip(mr.config)
 
 	r.Use(ml.Logging)
+	r.Use(mh.Hash)
+	r.Use(mg.GzipHandle)
 
-	r.Group(func(r chi.Router) {
-		r.Use(mh.HashSend)
-		r.Use(mg.GzipHandle)
-		r.Get("/", mr.GetAllMetrics)
-		r.Get("/ping", mr.PingStore)
-		r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
-	})
+	r.Get("/", mr.GetAllMetrics)
+	r.Get("/ping", mr.PingStore)
+	r.Get("/value/{metricType}/{metricName}", mr.GetMetric)
+	r.Post("/value/", mr.GetMetricJSON)
+	r.Post("/update/", mr.UpdateMetricJSON)
+	r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
+	r.Post("/updates/", mr.UpdateBatchJSON)
 
-	r.Group(func(r chi.Router) {
-		r.Use(mh.HashCheck)
-		r.Use(mg.GzipHandle)
-		r.Post("/value/", mr.GetMetricJSON)
-		r.Post("/update/", mr.UpdateMetricJSON)
-		r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
-		r.Post("/updates/", mr.UpdateBatchJSON)
-	})
 	return r
 }
 
@@ -349,7 +343,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 		gauge   models.Metrics
 		counter models.Metrics
 	)
-
+	fmt.Println(r.Header)
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
 		logger.Sugar().Debug("cannot decode request JSON body", zap.Error(err))
@@ -363,7 +357,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 			if metric.Value != nil {
 				gauge = append(gauge, metric)
 			} else {
-				logger.Sugar().Debugf("Missing value for gauge metric '%s'.", metric.ID)
+				logger.Sugar().Errorf("Missing value for gauge metric '%s'.", metric.ID)
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -371,12 +365,12 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 			if metric.Delta != nil {
 				counter = append(counter, metric)
 			} else {
-				logger.Sugar().Debugf("Missing delta for counter metric '%s'.", metric.ID)
+				logger.Sugar().Errorf("Missing delta for counter metric '%s'.", metric.ID)
 				rw.WriteHeader(http.StatusBadRequest)
 				return
 			}
 		default:
-			logger.Sugar().Debugf("wrong metric type '%s'", metric.MType)
+			logger.Sugar().Errorf("wrong metric type '%s'", metric.MType)
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
