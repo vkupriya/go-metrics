@@ -46,7 +46,6 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 
 func (m *MiddlewareLogger) Logging(h http.Handler) http.Handler {
 	logFn := func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("in Logger middleware.")
 		logger := m.config.Logger
 
 		start := time.Now()
