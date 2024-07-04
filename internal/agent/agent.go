@@ -51,7 +51,6 @@ func (c *Collector) collectMetrics() {
 	runtime.ReadMemStats(&memStats)
 
 	c.gaugeMutex.Lock()
-	defer c.gaugeMutex.Unlock()
 	c.gauge[`Alloc`] = float64(memStats.Alloc)
 	c.gauge[`BuckHashSys`] = float64(memStats.BuckHashSys)
 	c.gauge[`Frees`] = float64(memStats.Frees)
@@ -80,10 +79,11 @@ func (c *Collector) collectMetrics() {
 	c.gauge[`Sys`] = float64(memStats.Sys)
 	c.gauge[`TotalAlloc`] = float64(memStats.TotalAlloc)
 	c.gauge[`RandomValue`] = rand.Float64()
+	c.gaugeMutex.Unlock()
 
 	c.counterMutex.Lock()
-	defer c.counterMutex.Unlock()
 	c.counter[`PollCount`]++
+	c.counterMutex.Unlock()
 }
 
 func (c *Collector) collectPsutilMetrics() {
@@ -92,9 +92,9 @@ func (c *Collector) collectPsutilMetrics() {
 	cp, _ := cpu.Times(true)
 
 	c.gaugeMutex.Lock()
-	defer c.gaugeMutex.Unlock()
 	c.gauge[`TotalMemory`] = float64(v.Total)
 	c.gauge[`FreeMemory`] = float64(v.Free)
+	c.gaugeMutex.Unlock()
 
 	for i := range len(cp) {
 		c.gauge[`CPUutilization`+strconv.Itoa(i)] = float64(cp[i].System)
@@ -159,23 +159,24 @@ func (c *Collector) StartTickers(ctx context.Context) error {
 func (c *Collector) dispatcher(ch chan []Metric) {
 	logger := c.config.Logger
 	c.counterMutex.Lock()
-	defer c.counterMutex.Unlock()
 	metrics := make([]Metric, 0)
 	for k, v := range c.counter {
 		mtype := "counter"
 		delta := v
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Delta: &delta})
 	}
+	c.counterMutex.Unlock()
 
 	// Sending gauge metrics
 	c.gaugeMutex.Lock()
-	defer c.gaugeMutex.Unlock()
 	for k, v := range c.gauge {
 		mtype := "gauge"
 		value := v
 		metrics = append(metrics, Metric{ID: k, MType: mtype, Value: &value})
 	}
+	c.gaugeMutex.Unlock()
 	logger.Sugar().Debug("Posting metrics to channel")
+
 	ch <- metrics
 }
 
