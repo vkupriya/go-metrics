@@ -3,12 +3,16 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/vkupriya/go-metrics/internal/server/config"
+	"github.com/vkupriya/go-metrics/internal/server/models"
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
@@ -105,5 +109,108 @@ func TestUpdateMetric(t *testing.T) {
 				assert.Error(t, err)
 			}
 		})
+	}
+}
+
+func BenchmarkGetAllMetrics(b *testing.B) {
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   300,
+		FileStoragePath: "",
+		RestoreMetrics:  false,
+		Logger:          nil,
+		PostgresDSN:     "",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+	s, err := storage.NewMemStorage(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	mr := NewMetricResource(s, cfg)
+
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	w := httptest.NewRecorder()
+
+	for i := 0; i < b.N; i++ {
+		mr.GetAllMetrics(w, r)
+		res := w.Result()
+		if err := res.Body.Close(); err != nil {
+			b.Error("failed to close response body")
+		}
+	}
+}
+
+func BenchmarkUpdateBatch(b *testing.B) {
+	body := `[{"delta":4,"id":"PollCount","type":"counter"}, 
+	{"value":240632,"id":"HeapAlloc","type":"gauge"},
+	{"value":1757776,"id":"GCSys","type":"gauge"},
+	{"value":2621440,"id":"HeapIdle","type":"gauge"},
+	{"value":3702784,"id":"HeapSys","type":"gauge"},
+	{"value":0,"id":"NumForcedGC","type":"gauge"},
+	{"value":0,"id":"NumGC","type":"gauge"},
+	{"value":491520,"id":"StackSys","type":"gauge"},
+	{"value":941952,"id":"OtherSys","type":"gauge"},
+	{"value":5023.92,"id":"CPUutilization1","type":"gauge"},
+	{"value":1187.16,"id":"CPUutilization3","type":"gauge"},
+	{"value":374.08,"id":"CPUutilization4","type":"gauge"},
+	{"value":238.16,"id":"CPUutilization5","type":"gauge"},
+	{"value":68.21,"id":"CPUutilization7","type":"gauge"},
+	{"value":240632,"id":"Alloc","type":"gauge"},
+	{"value":0,"id":"Lookups","type":"gauge"},
+	{"value":5278.46,"id":"CPUutilization0","type":"gauge"},
+	{"value":108.03,"id":"CPUutilization6","type":"gauge"},
+	{"value":7696,"id":"BuckHashSys","type":"gauge"},
+	{"value":1081344,"id":"HeapInuse","type":"gauge"},
+	{"value":710,"id":"HeapObjects","type":"gauge"},
+	{"value":44000,"id":"MSpanInuse","type":"gauge"},
+	{"value":240632,"id":"TotalAlloc","type":"gauge"},
+	{"value":17179869184,"id":"TotalMemory","type":"gauge"},
+	{"value":2621440,"id":"HeapReleased","type":"gauge"},
+	{"value":0,"id":"LastGC","type":"gauge"},
+	{"value":0,"id":"PauseTotalNs","type":"gauge"},
+	{"value":156581888,"id":"FreeMemory","type":"gauge"},
+	{"value":46,"id":"Frees","type":"gauge"},
+	{"value":48960,"id":"MSpanSys","type":"gauge"},
+	{"value":756,"id":"Mallocs","type":"gauge"},
+	{"value":4194304,"id":"NextGC","type":"gauge"},
+	{"value":491520,"id":"StackInuse","type":"gauge"},
+	{"value":1814.73,"id":"CPUutilization2","type":"gauge"},
+	{"value":0,"id":"GCCPUFraction","type":"gauge"},
+	{"value":9600,"id":"MCacheInuse","type":"gauge"},
+	{"value":15600,"id":"MCacheSys","type":"gauge"},
+	{"value":6966288,"id":"Sys","type":"gauge"},
+	{"value":0.08536959506538425,"id":"RandomValue","type":"gauge"}]`
+
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		b.Error("failed to initialize Logger: %w", err)
+	}
+
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   300,
+		FileStoragePath: "",
+		RestoreMetrics:  false,
+		Logger:          logger,
+		PostgresDSN:     "",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+	s, err := storage.NewMemStorage(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	mr := NewMetricResource(s, cfg)
+
+	for i := 0; i < b.N; i++ {
+		r := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		mr.UpdateBatchJSON(w, r)
+		res := w.Result()
+		if err := res.Body.Close(); err != nil {
+			b.Error("failed to close response body")
+		}
 	}
 }

@@ -480,7 +480,6 @@ func (p *PostgresStorage) UpdateBatch(c *models.Config, g models.Metrics, cr mod
 		if err != nil {
 			return fmt.Errorf("failed query: %w", err)
 		}
-		fmt.Println("Result of GetCounterMetric func: Value:", v, e)
 		if !e {
 			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", i.ID, i.Delta)
 			if err != nil {

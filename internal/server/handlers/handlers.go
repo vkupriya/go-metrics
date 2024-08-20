@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
 	mw "github.com/vkupriya/go-metrics/internal/server/middleware"
@@ -104,6 +105,8 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 		r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
 		r.Post("/updates/", mr.UpdateBatchJSON)
 	})
+
+	r.Mount("/debug", middleware.Profiler())
 
 	return r
 }
@@ -333,7 +336,6 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 
 func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
-	fmt.Println("we are in ping store func!")
 	if err := mr.store.PingStore(mr.config); err != nil {
 		logger.Sugar().Errorf("failed to connect to store.", zap.Error(err))
 		http.Error(rw, "", http.StatusInternalServerError)
@@ -343,7 +345,8 @@ func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Request) {
-	var req models.Metrics
+	const NumberOfMetrics int64 = 64
+	req := make(models.Metrics, NumberOfMetrics)
 	logger := mr.config.Logger
 
 	var (
@@ -353,7 +356,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 
 	dec := json.NewDecoder(r.Body)
 	if err := dec.Decode(&req); err != nil {
-		logger.Sugar().Debug("cannot decode request JSON body", zap.Error(err))
+		logger.Sugar().Debugf("cannot decode request JSON body", err)
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -382,6 +385,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+
 	err := mr.store.UpdateBatch(mr.config, gauge, counter)
 	if err != nil {
 		logger.Sugar().Error(zap.Error(err))
