@@ -49,7 +49,6 @@ func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
 	}
 
 	tx, err := pool.Begin(ctx)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to start a transaction: %w", err)
 	}
@@ -102,7 +101,7 @@ func NewFileStorage(c *models.Config) (*FileStorage, error) {
 	logger := c.Logger
 
 	var FilePermissions fs.FileMode = 0o600
-	var FileExists = false
+	FileExists := false
 
 	gauge := make(map[string]float64)
 	counter := make(map[string]int64)
@@ -114,7 +113,6 @@ func NewFileStorage(c *models.Config) (*FileStorage, error) {
 	}
 
 	file, err := os.OpenFile(c.FileStoragePath, os.O_RDWR|os.O_CREATE, FilePermissions)
-
 	if err != nil {
 		logger.Error("File open error", zap.Error(err))
 		return nil, fmt.Errorf("failed to create metrics db file %s", c.FileStoragePath)
@@ -157,7 +155,8 @@ func NewFileStorage(c *models.Config) (*FileStorage, error) {
 		&MemStorage{
 			gauge:   gauge,
 			counter: counter,
-		}}
+		},
+	}
 
 	if c.StoreInterval != 0 {
 		go f.SaveMetricsTicker(c)
@@ -425,7 +424,6 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 	defer cancel()
 
 	rows, err := db.Query(ctx, "SELECT name, value FROM gauge")
-
 	if err != nil {
 		return nil, nil, fmt.Errorf("gauge table query error: %w", err)
 	}

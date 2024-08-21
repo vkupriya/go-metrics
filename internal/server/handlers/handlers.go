@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-
 	"net/http"
 	"strconv"
 
@@ -77,7 +76,8 @@ func NewStore(c *models.Config) (Storage, error) {
 func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
 	return &MetricResource{
 		store:  store,
-		config: cfg}
+		config: cfg,
+	}
 }
 
 func NewMetricRouter(mr *MetricResource) chi.Router {
