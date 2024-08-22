@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"sync"
 
 	"net/http"
 	"strconv"
@@ -49,6 +50,12 @@ const (
 type MetricResource struct {
 	store  Storage
 	config *models.Config
+}
+
+var pool = sync.Pool{
+	New: func() any {
+		return &models.Metrics{}
+	},
 }
 
 func NewStore(c *models.Config) (Storage, error) {
@@ -345,9 +352,13 @@ func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 }
 
 func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Request) {
-	const NumberOfMetrics int64 = 64
-	req := make(models.Metrics, NumberOfMetrics)
 	logger := mr.config.Logger
+
+	req, ok := pool.Get().(*models.Metrics)
+	if !ok {
+		logger.Sugar().Debugf("cannot get temporary metrics data structure from the pool")
+		rw.WriteHeader(http.StatusInternalServerError)
+	}
 
 	var (
 		gauge   models.Metrics
@@ -361,7 +372,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	for _, metric := range req {
+	for _, metric := range *req {
 		switch metric.MType {
 		case "gauge":
 			if metric.Value != nil {
@@ -385,7 +396,7 @@ func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-
+	pool.Put(req)
 	err := mr.store.UpdateBatch(mr.config, gauge, counter)
 	if err != nil {
 		logger.Sugar().Error(zap.Error(err))
