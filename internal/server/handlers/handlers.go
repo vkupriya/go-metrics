@@ -30,6 +30,7 @@ const tmpl string = `
 	</html>
 `
 
+// Storage interface implements CRUD operations with metrics store.
 type Storage interface {
 	UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error)
 	UpdateCounterMetric(c *models.Config, name string, value int64) (int64, error)
@@ -50,6 +51,16 @@ type MetricResource struct {
 	config *models.Config
 }
 
+// NewMetricResource initializes MetricResource type.
+func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
+	return &MetricResource{
+		store:  store,
+		config: cfg,
+	}
+}
+
+// NewStore instantiates metric store based on configuration parameters.
+// Options: Memory Store, File Store and PostgresDB Store.
 func NewStore(c *models.Config) (Storage, error) {
 	if c.PostgresDSN != "" {
 		db, err := storage.NewPostgresStorage(c)
@@ -73,13 +84,7 @@ func NewStore(c *models.Config) (Storage, error) {
 	return ms, nil
 }
 
-func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
-	return &MetricResource{
-		store:  store,
-		config: cfg,
-	}
-}
-
+// NewMetricRouter intitializes chi router.
 func NewMetricRouter(mr *MetricResource) chi.Router {
 	r := chi.NewRouter()
 
@@ -111,6 +116,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	return r
 }
 
+// UpdateMetric is an endpoint to update individual metric of gauge or counter type via url.
 func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
 
@@ -162,6 +168,7 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// UpdateMetricJSON endpoint to update individual metric of gauge or counter type via JSON body.
 func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Request) {
 	var req models.Metric
 	logger := mr.config.Logger
@@ -212,6 +219,7 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 	}
 }
 
+// GetMetric endpoint returns gauge or counter metric value via URL parameters.
 func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
 
@@ -250,6 +258,7 @@ func (mr *MetricResource) GetMetric(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetMetricJSON endpoint returns requested gauge or counter metric value in JSON.
 func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request) {
 	var req models.Metric
 	logger := mr.config.Logger
@@ -299,6 +308,7 @@ func (mr *MetricResource) GetMetricJSON(rw http.ResponseWriter, r *http.Request)
 	}
 }
 
+// GetAllMetrics returns all stored metrics as HTML page.
 func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
 
@@ -334,6 +344,7 @@ func (mr *MetricResource) GetAllMetrics(rw http.ResponseWriter, r *http.Request)
 	}
 }
 
+// PingStore endpoint returns 200 OK if metric store is available, otherwise status code 500.
 func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 	logger := mr.config.Logger
 	if err := mr.store.PingStore(mr.config); err != nil {
@@ -344,6 +355,7 @@ func (mr *MetricResource) PingStore(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusOK)
 }
 
+// UpdateBatchJSON endpoint updates all metrics in a batch.
 func (mr *MetricResource) UpdateBatchJSON(rw http.ResponseWriter, r *http.Request) {
 	const NumberOfMetrics int64 = 64
 	req := make(models.Metrics, NumberOfMetrics)
