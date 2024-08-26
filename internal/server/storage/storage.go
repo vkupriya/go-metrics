@@ -2,15 +2,18 @@ package storage
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -33,61 +36,46 @@ type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
 
-func NewPostgresStorage(c *models.Config) (*PostgresStorage, error) {
-	poolCfg, err := pgxpool.ParseConfig(c.PostgresDSN)
+func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
+	if err := runMigrations(dsn); err != nil {
+		return nil, fmt.Errorf("failed to run DB migrations: %w", err)
+	}
+	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse the DSN: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.ContextTimeout)*time.Second)
-
-	defer cancel()
+	ctx := context.Background()
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize a connection pool: %w", err)
 	}
 
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start a transaction: %w", err)
-	}
-
-	defer func() {
-		if err := tx.Rollback(ctx); err != nil {
-			if !errors.Is(err, pgx.ErrTxClosed) {
-				log.Printf("failed to rollback the transaction: %v", err)
-			}
-		}
-	}()
-
-	createSchema := []string{
-		`CREATE TABLE IF NOT EXISTS gauge(
-			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-			name VARCHAR(255) UNIQUE NOT NULL,
-			value DOUBLE PRECISION NOT NULL
-		)`,
-
-		`CREATE TABLE IF NOT EXISTS counter(
-			id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-			name VARCHAR(255) UNIQUE NOT NULL,
-			value BIGINT NOT NULL
-		)`,
-	}
-
-	for _, table := range createSchema {
-		if _, err := tx.Exec(ctx, table); err != nil {
-			return nil, fmt.Errorf("failed to execute statement `%s`: %w", table, err)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit PostgresDB transaction: %w", err)
-	}
-
 	return &PostgresStorage{
 		pool: pool,
 	}, nil
+}
+
+//go:embed migrations/*.sql
+var migrationsDir embed.FS
+
+func runMigrations(dsn string) error {
+	d, err := iofs.New(migrationsDir, "migrations")
+	if err != nil {
+		return fmt.Errorf("failed to return an iofs driver: %w", err)
+	}
+
+	m, err := migrate.NewWithSourceInstance("iofs", d, dsn)
+	if err != nil {
+		return fmt.Errorf("failed to get a new migrate instance: %w", err)
+	}
+	if err := m.Up(); err != nil {
+		if !errors.Is(err, migrate.ErrNoChange) {
+			return fmt.Errorf("failed to apply migrations to the DB: %w", err)
+		}
+	}
+	return nil
 }
 
 func NewMemStorage(c *models.Config) (*MemStorage, error) {
@@ -357,10 +345,14 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 	if err != nil {
 		return value, fmt.Errorf("failed query: %w", err)
 	}
+
 	if !e {
 		if err := retryOnConnErr(func() error {
 			_, err := db.Exec(ctx, "INSERT INTO counter (name, value) VALUES($1, $2)", name, value)
-			return fmt.Errorf("%w", err)
+			if err != nil {
+				return fmt.Errorf("error inserting into db: %w", err)
+			}
+			return nil
 		}); err != nil {
 			return value, fmt.Errorf("failed to insert counter metric '%s': %w", name, err)
 		}
@@ -368,7 +360,10 @@ func (p *PostgresStorage) UpdateCounterMetric(c *models.Config, name string, val
 		value += v
 		if err := retryOnConnErr(func() error {
 			_, err := db.Exec(ctx, "UPDATE counter SET value = $1 WHERE name = $2", value, name)
-			return fmt.Errorf("%w", err)
+			if err != nil {
+				return fmt.Errorf("error updating db: %w", err)
+			}
+			return nil
 		}); err != nil {
 			return value, fmt.Errorf("failed to update counter metric '%s': %w", name, err)
 		}
@@ -531,6 +526,10 @@ func (p *PostgresStorage) PingStore(c *models.Config) error {
 		return fmt.Errorf("%w", err)
 	}
 	return nil
+}
+
+func (p *PostgresStorage) Close() {
+	p.pool.Close()
 }
 
 func retryOnConnErr(f func() error) error {

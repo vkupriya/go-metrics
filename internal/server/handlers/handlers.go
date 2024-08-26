@@ -63,7 +63,7 @@ func NewMetricResource(store Storage, cfg *models.Config) *MetricResource {
 // Options: Memory Store, File Store and PostgresDB Store.
 func NewStore(c *models.Config) (Storage, error) {
 	if c.PostgresDSN != "" {
-		db, err := storage.NewPostgresStorage(c)
+		db, err := storage.NewPostgresStorage(c.PostgresDSN)
 		if err != nil {
 			return db, fmt.Errorf("failed to initialize PostgresDB: %w", err)
 		}
