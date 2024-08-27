@@ -176,7 +176,7 @@ func getHostPort(hostPort string) (string, uint16, error) {
 	return hostPortParts[0], uint16(port), nil
 }
 
-//nolint:dupl // handlers unit tests following same pattern
+//nolint:dupl // TestUpdateGaugeMetric follows same pattern
 func TestUpdateGaugeMetric(t *testing.T) {
 	dsn := getDSN()
 	if err := runMigrations(dsn); err != nil {
@@ -227,7 +227,61 @@ func TestUpdateGaugeMetric(t *testing.T) {
 	}
 }
 
-//nolint:dupl // storage integration tests following same pattern
+func TestGetGaugeMetric(t *testing.T) {
+	dsn := getDSN()
+	if err := runMigrations(dsn); err != nil {
+		t.Errorf("failed to run migrations using dsn %s: %v", dsn, err)
+		return
+	}
+
+	cfg := models.Config{
+		ContextTimeout: 10,
+	}
+	type metric struct {
+		name  string
+		value float64
+	}
+
+	cases := []struct {
+		name        string
+		metric      metric
+		ExpectedErr error
+	}{
+		{
+			name: "get_gauge_metric:OK",
+			metric: metric{
+				name:  "test",
+				value: 20561.357,
+			},
+			ExpectedErr: nil,
+		},
+	}
+
+	db, err := NewPostgresStorage(dsn)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer db.Close()
+
+	for i, tc := range cases {
+		i, tc := i, tc
+
+		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
+			v, _, actualErr := db.GetGaugeMetric(&cfg, tc.metric.name)
+			if v != tc.metric.value {
+				t.Error("returned value does not match.")
+				return
+			}
+			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
+				t.Error(err)
+				return
+			}
+		})
+	}
+}
+
+//nolint:dupl // storage integration tests follow same pattern
 func TestUpdateCounterMetric(t *testing.T) {
 	dsn := getDSN()
 	if err := runMigrations(dsn); err != nil {
@@ -270,6 +324,60 @@ func TestUpdateCounterMetric(t *testing.T) {
 
 		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
 			_, actualErr := db.UpdateCounterMetric(&cfg, tc.metric.name, tc.metric.value)
+			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
+				t.Error(err)
+				return
+			}
+		})
+	}
+}
+
+func TestGetCounterMetric(t *testing.T) {
+	dsn := getDSN()
+	if err := runMigrations(dsn); err != nil {
+		t.Errorf("failed to run migrations using dsn %s: %v", dsn, err)
+		return
+	}
+
+	cfg := models.Config{
+		ContextTimeout: 10,
+	}
+	type metric struct {
+		name  string
+		value int64
+	}
+
+	cases := []struct {
+		name        string
+		metric      metric
+		ExpectedErr error
+	}{
+		{
+			name: "get_counter_metric:OK",
+			metric: metric{
+				name:  "test",
+				value: 2056,
+			},
+			ExpectedErr: nil,
+		},
+	}
+
+	db, err := NewPostgresStorage(dsn)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer db.Close()
+
+	for i, tc := range cases {
+		i, tc := i, tc
+
+		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
+			v, _, actualErr := db.GetCounterMetric(&cfg, tc.metric.name)
+			if v != tc.metric.value {
+				t.Error("returned value does not match.")
+				return
+			}
 			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
 				t.Error(err)
 				return
@@ -339,6 +447,47 @@ func TestUpdateBatch(t *testing.T) {
 
 		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
 			actualErr := db.UpdateBatch(&cfg, tc.gauge, tc.counter)
+			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
+				t.Error(err)
+				return
+			}
+		})
+	}
+}
+
+func TestGetAllMetrics(t *testing.T) {
+	dsn := getDSN()
+	if err := runMigrations(dsn); err != nil {
+		t.Errorf("failed to run migrations using dsn %s: %v", dsn, err)
+		return
+	}
+
+	cfg := models.Config{
+		ContextTimeout: 10,
+	}
+
+	cases := []struct {
+		name        string
+		ExpectedErr error
+	}{
+		{
+			name:        "get_all_metrics:OK",
+			ExpectedErr: nil,
+		},
+	}
+
+	db, err := NewPostgresStorage(dsn)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer db.Close()
+
+	for i, tc := range cases {
+		i, tc := i, tc
+
+		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
+			_, _, actualErr := db.GetAllMetrics(&cfg)
 			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
 				t.Error(err)
 				return
