@@ -100,7 +100,7 @@ func runMain(m *testing.M) (int, error) {
 		}
 	}()
 
-	hostPort := pg.GetHostPort("5432")
+	hostPort := pg.GetHostPort(":5432")
 	initGetDSN(hostPort)
 	if err := initGetSUConnection(hostPort); err != nil {
 		return 1, fmt.Errorf("failed to connect as admin to postgresql DB: %w", err)
