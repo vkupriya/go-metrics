@@ -34,7 +34,14 @@ git fetch template && git checkout template/main .github
 ## Проверка доли покрытия кода тестами
 
 ```bash
-go test -v -coverpkg=./... -coverprofile=profile.cov ./...
+go test -v -coverpkg=./... -coverprofile=profile.temp ./...
+```
+
+Удаляем сгенерированные файлы mock*.go из профиля, чтобы не влияли на результат вычисления покрытия
+
+```bash
+cat profile.temp | grep -v "mock_store.go" > profile.cov
+
 ```
 
 ```bash
