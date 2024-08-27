@@ -59,6 +59,7 @@ func initGetSUConnection(hostPort string) error {
 			User:     "postgres",
 			Password: "postgres",
 		})
+		fmt.Println("Postgres Details: ", host, port)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get a super user connection: %w", err)
 		}
