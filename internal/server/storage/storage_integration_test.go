@@ -83,7 +83,7 @@ func runMain(m *testing.M) (int, error) {
 				"POSTGRES_USER=postgres",
 				"POSTGRES_PASSWORD=postgres",
 			},
-			ExposedPorts: []string{"5432/tcp"},
+			//ExposedPorts: []string{"5432/tcp"},
 		},
 		func(config *docker.HostConfig) {
 			config.AutoRemove = true
@@ -100,8 +100,8 @@ func runMain(m *testing.M) (int, error) {
 		}
 	}()
 
-	// hostPort := pg.GetHostPort("5432/tcp")
-	hostPort := "localhost:5432"
+	hostPort := pg.GetHostPort("5432/tcp")
+	//hostPort := "localhost:5432"
 	fmt.Println("hostPort: ", hostPort)
 	initGetDSN(hostPort)
 	if err := initGetSUConnection(hostPort); err != nil {
