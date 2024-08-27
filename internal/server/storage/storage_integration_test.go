@@ -100,7 +100,8 @@ func runMain(m *testing.M) (int, error) {
 		}
 	}()
 
-	hostPort := pg.GetHostPort("5432/tcp")
+	// hostPort := pg.GetHostPort("5432/tcp")
+	hostPort := "localhost:5432"
 	fmt.Println("hostPort: ", hostPort)
 	initGetDSN(hostPort)
 	if err := initGetSUConnection(hostPort); err != nil {
