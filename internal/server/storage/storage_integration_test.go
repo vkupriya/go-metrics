@@ -59,7 +59,7 @@ func initGetSUConnection(hostPort string) error {
 			User:     "postgres",
 			Password: "postgres",
 		})
-		fmt.Println("Postgres Details: ", host, port)
+		fmt.Println("Postgres Connection details: ", host, port)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get a super user connection: %w", err)
 		}
@@ -100,7 +100,8 @@ func runMain(m *testing.M) (int, error) {
 		}
 	}()
 
-	hostPort := pg.GetHostPort(":5432")
+	hostPort := pg.GetHostPort("5432/tcp")
+	fmt.Println("hostPort: ", hostPort)
 	initGetDSN(hostPort)
 	if err := initGetSUConnection(hostPort); err != nil {
 		return 1, fmt.Errorf("failed to connect as admin to postgresql DB: %w", err)
