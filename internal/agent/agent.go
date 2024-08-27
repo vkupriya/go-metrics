@@ -35,7 +35,6 @@ type Metric struct {
 	Value *float64 `json:"value,omitempty"` // значение метрики в случае передачи gauge
 	ID    string   `json:"id"`              // имя метрики
 	MType string   `json:"type"`            // параметр, принимающий значение gauge или counter
-
 }
 
 func NewCollector(cfg Config) *Collector {
@@ -248,7 +247,6 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(&gz).
 		Post(url)
-
 	if err != nil {
 		return fmt.Errorf("error to do http post: %w", err)
 	}
