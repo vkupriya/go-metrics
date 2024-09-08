@@ -65,3 +65,16 @@ go tool cover -func profile.cov
 ```bash
 staticcheck ./...
 ```
+
+## Флаги компилятора
+
+В коде сервера метрик предусмотрены установка и вывод версии (buildVersion), даты сборки (buildDate) и коммит версии (buildCommit). Пример установки флагов при сборке:
+
+```bash
+go build -ldflags "-X main.buildVersion=v1.0.1 -X 'main.buildDate=$(date +'%Y/%m/%d')' -X main.buildCommit=cb92c23" -o server
+```
+
+При сборке и запуске:
+```bash
+go run -ldflags "-X main.buildVersion=v1.0.1 -X 'main.buildDate=$(date +'%Y/%m/%d')' -X main.buildCommit=cb92c23" main.go
+```
