@@ -1,3 +1,5 @@
+// Package config - initialises metric server configuration through flags and env vars, and default settings.
+// It instantiatiates zap logger.
 package config
 
 import (

@@ -1,3 +1,4 @@
+// Package agent - collects go runtime telemetry and sends to metric server.
 package agent
 
 import (
@@ -235,7 +236,7 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 	if err != nil {
 		return fmt.Errorf("failed to write into gzip.NewWriter metrics batch: %w", err)
 	}
-	if err := w.Close(); err != nil {
+	if err = w.Close(); err != nil {
 		return fmt.Errorf("failed to close gzip.NewWriter for metrics batch: %w", err)
 	}
 

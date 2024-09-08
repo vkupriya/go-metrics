@@ -1,3 +1,5 @@
+// Package storage provides interface to upstream services for storing metrics.
+// It defines and support 3 storage types: MemStorage, FileStorage and PostgresStorage.
 package storage
 
 import (
@@ -426,7 +428,7 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 
 	for rows.Next() {
 		var gauge models.GaugeModel
-		if err := rows.Scan(
+		if err = rows.Scan(
 			&gauge.Name,
 			&gauge.Value,
 		); err != nil {
@@ -434,7 +436,7 @@ func (p *PostgresStorage) GetAllMetrics(c *models.Config) (map[string]float64, m
 		}
 		gaugeAll[gauge.Name] = gauge.Value
 	}
-	if err := rows.Err(); err != nil {
+	if err = rows.Err(); err != nil {
 		logger.Sugar().Error("errors reading rows.", zap.Error(err))
 	}
 	rows, err = db.Query(ctx, "SELECT name, value FROM counter")

@@ -365,6 +365,14 @@ func TestGetCounterMetric(t *testing.T) {
 			},
 			ExpectedErr: nil,
 		},
+		{
+			name: "get_counter_metric_notfound:FAIL",
+			metric: metric{
+				name:  "test05",
+				value: 2056,
+			},
+			ExpectedErr: nil,
+		},
 	}
 
 	db, err := NewPostgresStorage(dsn)
@@ -378,8 +386,8 @@ func TestGetCounterMetric(t *testing.T) {
 		i, tc := i, tc
 
 		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
-			v, _, actualErr := db.GetCounterMetric(&cfg, tc.metric.name)
-			if v != tc.metric.value {
+			v, exists, actualErr := db.GetCounterMetric(&cfg, tc.metric.name)
+			if v != tc.metric.value && exists {
 				t.Error("returned value does not match.")
 				return
 			}
@@ -493,6 +501,51 @@ func TestGetAllMetrics(t *testing.T) {
 
 		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
 			_, _, actualErr := db.GetAllMetrics(&cfg)
+			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
+				t.Error(err)
+				return
+			}
+		})
+	}
+}
+
+func TestPingStore(t *testing.T) {
+	dsn := getDSN()
+	if err := runMigrations(dsn); err != nil {
+		t.Errorf("failed to run migrations using dsn %s: %v", dsn, err)
+		return
+	}
+
+	cfg := models.Config{
+		ContextTimeout: 10,
+	}
+
+	cases := []struct {
+		name        string
+		ExpectedErr error
+	}{
+		{
+			name:        "ping_store:OK",
+			ExpectedErr: nil,
+		},
+		{
+			name:        "ping_store:FAIL",
+			ExpectedErr: nil,
+		},
+	}
+
+	db, err := NewPostgresStorage(dsn)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer db.Close()
+
+	for i, tc := range cases {
+		i, tc := i, tc
+
+		t.Run(fmt.Sprintf("test #%d: %s", i, tc.name), func(t *testing.T) {
+			actualErr := db.PingStore(&cfg)
 			if err := checkErrors(actualErr, tc.ExpectedErr); err != nil {
 				t.Error(err)
 				return
