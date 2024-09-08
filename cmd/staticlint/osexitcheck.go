@@ -13,6 +13,7 @@ var OsExitAnalyzer = &analysis.Analyzer{
 	Run:  run,
 }
 
+//nolint:nilnil //acceptable to ignore in test function
 func run(pass *analysis.Pass) (interface{}, error) {
 	if pass.Pkg.Name() != "main" {
 		return nil, nil
