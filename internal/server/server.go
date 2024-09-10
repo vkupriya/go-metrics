@@ -11,12 +11,12 @@ import (
 	"go.uber.org/zap"
 )
 
-func Start() {
+func Start(logger *zap.Logger) {
 	cfg, err := config.NewConfig()
 	if err != nil {
 		log.Fatal(zap.Error(err))
 	}
-	logger := cfg.Logger
+	cfg.Logger = logger
 
 	s, err := handlers.NewStore(cfg)
 	if err != nil {
