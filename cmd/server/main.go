@@ -16,7 +16,6 @@ var (
 )
 
 func main() {
-
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
 	if err != nil {
