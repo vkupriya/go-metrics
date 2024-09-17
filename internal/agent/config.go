@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"flag"
+	"fmt"
 
 	"os"
 	"strconv"
@@ -67,11 +68,11 @@ func NewConfig() (*Config, error) {
 		key = &envKey
 	}
 
-	// logConfig := zap.NewDevelopmentConfig()
-	// logger, err := logConfig.Build()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to initialize Logger: %w", err)
-	// }
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize Logger: %w", err)
+	}
 
 	return &Config{
 		metricHost:     *metricHost,
@@ -79,7 +80,7 @@ func NewConfig() (*Config, error) {
 		pollInterval:   *pollInterval,
 		httpTimeout:    httpTimeout,
 		rateLimit:      *rateLimit,
-		// Logger:         logger,
-		HashKey: *key,
+		Logger:         logger,
+		HashKey:        *key,
 	}, nil
 }
