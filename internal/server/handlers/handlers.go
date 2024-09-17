@@ -1,3 +1,4 @@
+// Package handlers provides REST API service for metric server.
 package handlers
 
 import (

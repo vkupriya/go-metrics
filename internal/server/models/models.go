@@ -1,3 +1,4 @@
+// Package models - defines format of key data structures for metric server.
 package models
 
 import (

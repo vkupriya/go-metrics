@@ -1,3 +1,4 @@
+// Package middleware provides custom middlewares: Logger, Gzip and Hash for metric REST API service.
 package middleware
 
 import (
@@ -47,7 +48,7 @@ func (l *MiddlewareGzip) GzipHandle(h http.Handler) http.Handler {
 		if sendsGzip {
 			gr, err := gzip.NewReader(r.Body)
 			defer func() {
-				if err := gr.Close(); err != nil {
+				if err = gr.Close(); err != nil {
 					logger.Sugar().Error(zap.Error(err))
 					http.Error(w, "", http.StatusInternalServerError)
 				}

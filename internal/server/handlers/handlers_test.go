@@ -19,9 +19,10 @@ import (
 	"github.com/vkupriya/go-metrics/internal/server/storage"
 )
 
-func testRequest(t *testing.T, ts *httptest.Server, method, path string) *http.Response {
+func testRequest(t *testing.T, ts *httptest.Server, method, path string, body string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest(method, ts.URL+path, http.NoBody)
+
+	req, err := http.NewRequest(method, ts.URL+path, strings.NewReader(body))
 	require.NoError(t, err)
 
 	resp, err := ts.Client().Do(req)
@@ -33,12 +34,13 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string) *http.R
 	return resp
 }
 
-func TestUpdateMetricMemStore(t *testing.T) {
+func TestUpdateAndGetMetricsMemStore(t *testing.T) {
 	cfg, err := config.NewConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := storage.NewMemStorage(cfg)
+	cfg.FileStoragePath = ""
+	s, err := NewStore(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,36 +48,123 @@ func TestUpdateMetricMemStore(t *testing.T) {
 
 	ts := httptest.NewServer(NewMetricRouter(mr))
 
-	type args struct {
-		path   string
-		method string
-	}
 	tests := []struct {
-		name     string
-		args     args
-		wantCode int
+		name         string
+		method       string
+		path         string
+		body         string
+		expectedBody string
+		expectedCode int
 	}{
 		{
-			name: "update_gauge_metric: OK",
-			args: args{
-				path:   "/update/gauge/test/20.0",
-				method: http.MethodPost,
-			},
-			wantCode: 200,
+			name:         "get_metric_wrongURL: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/",
+			body:         "",
+			expectedCode: 405,
+			expectedBody: "",
 		},
 		{
-			name: "update_counter_metric: OK",
-			args: args{
-				path:   "/update/counter/test/20",
-				method: http.MethodPost,
-			},
-			wantCode: 200,
+			name:         "get_gauge_metric: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 404,
+			expectedBody: "",
+		},
+		{
+			name:         "update_gauge_metric_wrongvalue: FAIL",
+			method:       http.MethodPost,
+			path:         "/update/gauge/test/string",
+			body:         "",
+			expectedCode: 400,
+		},
+		{
+			name:         "update_gauge_metric: OK",
+			method:       http.MethodPost,
+			path:         "/update/gauge/test/20.0",
+			body:         "",
+			expectedCode: 200,
+		},
+		{
+			name:         "get_gauge_metric: OK",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "20.0",
+		},
+		{
+			name:         "get_gauge_metric_JSON: OK",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test", "type": "gauge"}`,
+			expectedCode: 200,
+			expectedBody: `{ "id": "test", "type": "gauge", "value": 20.0}`,
+		},
+		{
+			name:         "update_gauge_metric_JSON_wrongvalue: FAIL",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test", "type": "gauge", "delta": 20.0}`,
+			expectedCode: 500,
+			expectedBody: `{ "id": "test", "type": "gauge", "value": 20.0}`,
+		},
+		{
+			name:         "update_gauge_metric_JSON_wrongvalue: FAIL",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test", "type": "gauge", "value": "string"}`,
+			expectedCode: 500,
+		},
+		{
+			name:         "get_counter_metric: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 404,
+		},
+		{
+			name:         "update_counter_metric_wrongvalue: FAIL",
+			method:       http.MethodPost,
+			path:         "/update/counter/test/string",
+			body:         "",
+			expectedCode: 400,
+		},
+		{
+			name:         "update_counter_metric: OK",
+			method:       http.MethodPost,
+			path:         "/update/counter/test/20",
+			body:         "",
+			expectedCode: 200,
+		},
+		{
+			name:         "get_counter_metric: OK",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "20",
+		},
+		{
+			name:         "update_batch_metric: OK",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{ "id": "test", "type": "gauge", "value": 20.0}, { "id": "test", "type": "counter", "delta": 20}]`,
+			expectedCode: 200,
+		},
+		{
+			name:         "get_all_metrics: OK",
+			method:       http.MethodGet,
+			path:         "/",
+			body:         "",
+			expectedCode: 200,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := testRequest(t, ts, tt.args.method, tt.args.path)
-			assert.Equal(t, tt.wantCode, resp.StatusCode)
+			resp := testRequest(t, ts, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
 			if err := resp.Body.Close(); err != nil {
 				assert.Error(t, err)
 			}
@@ -92,7 +181,7 @@ func TestUpdateMetricFileStore(t *testing.T) {
 
 	cfg := &models.Config{
 		Address:         "http://localhost:8080",
-		StoreInterval:   300,
+		StoreInterval:   0,
 		FileStoragePath: "/tmp/metrics-db.json",
 		RestoreMetrics:  false,
 		Logger:          logger,
@@ -108,36 +197,121 @@ func TestUpdateMetricFileStore(t *testing.T) {
 
 	ts := httptest.NewServer(NewMetricRouter(mr))
 
-	type args struct {
-		path   string
-		method string
-	}
 	tests := []struct {
-		name     string
-		args     args
-		wantCode int
+		name         string
+		method       string
+		path         string
+		body         string
+		expectedBody string
+		expectedCode int
 	}{
 		{
-			name: "update_gauge_metric: OK",
-			args: args{
-				path:   "/update/gauge/test/20.0",
-				method: http.MethodPost,
-			},
-			wantCode: 200,
+			name:         "get_gauge_metric: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 404,
+			expectedBody: "",
 		},
 		{
-			name: "update_counter_metric: OK",
-			args: args{
-				path:   "/update/counter/test/20",
-				method: http.MethodPost,
-			},
-			wantCode: 200,
+			name:         "update_gauge_metric: OK",
+			method:       http.MethodPost,
+			path:         "/update/gauge/test/20.0",
+			body:         "",
+			expectedCode: 200,
+		},
+		{
+			name:         "get_gauge_metric: OK",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "20.0",
+		},
+		{
+			name:         "get_gauge_metric_JSON: OK",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test", "type": "gauge"}`,
+			expectedCode: 200,
+			expectedBody: `{ "id": "test", "type": "gauge", "value": 20.0}`,
+		},
+		{
+			name:         "get_gauge_metric_JSON_no_type: FAIL",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test"}`,
+			expectedCode: 400,
+		},
+		{
+			name:         "get_gauge_metric_incorrect_JSON: OK",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test"`,
+			expectedCode: 500,
+		},
+		{
+			name:         "update_gauge_metric_JSON_novalue: FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "test", "type"gauge"}`,
+			expectedCode: 500,
+		},
+		{
+			name:         "get_counter_metric: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 404,
+		},
+		{
+			name:         "update_counter_metric: OK",
+			method:       http.MethodPost,
+			path:         "/update/counter/test/20",
+			body:         "",
+			expectedCode: 200,
+		},
+		{
+			name:         "get_counter_metric: OK",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "20",
+		},
+		{
+			name:         "get_counter_metric_JSON: OK",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test", "type": "counter", "delta": 20}`,
+			expectedCode: 200,
+		},
+		{
+			name:         "update_batch_metric: OK",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{ "id": "test", "type": "gauge", "value": 20.0}, { "id": "test", "type": "counter", "delta": 20}]`,
+			expectedCode: 200,
+		},
+		{
+			name:         "update_batch_metric_wrong_JSON: FAIL",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{ "id": "test", "type": "gauge", "value": 20.0}, { "id": "test", "type": "counter", "delta": 20}`,
+			expectedCode: 500,
+		},
+		{
+			name:         "get_all_metrics: OK",
+			method:       http.MethodGet,
+			path:         "/",
+			body:         "",
+			expectedCode: 200,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := testRequest(t, ts, tt.args.method, tt.args.path)
-			assert.Equal(t, tt.wantCode, resp.StatusCode)
+			resp := testRequest(t, ts, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
 			if err := resp.Body.Close(); err != nil {
 				assert.Error(t, err)
 			}
@@ -145,6 +319,123 @@ func TestUpdateMetricFileStore(t *testing.T) {
 	}
 }
 
+func TestUpdateMetricFileStoreTicker(t *testing.T) {
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		t.Error("failed to initialize Logger: %w", err)
+	}
+
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   5,
+		FileStoragePath: "/tmp/metrics-db.json",
+		RestoreMetrics:  false,
+		Logger:          logger,
+		PostgresDSN:     "",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+	s, err := NewStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mr := NewMetricResource(s, cfg)
+
+	ts := httptest.NewServer(NewMetricRouter(mr))
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		body         string
+		expectedBody string
+		expectedCode int
+	}{
+		{
+			name:         "get_gauge_metric: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 404,
+			expectedBody: "",
+		},
+		{
+			name:         "update_gauge_metric: OK",
+			method:       http.MethodPost,
+			path:         "/update/gauge/test/20.0",
+			body:         "",
+			expectedCode: 200,
+		},
+		{
+			name:         "get_gauge_metric: OK",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "20.0",
+		},
+		{
+			name:         "get_gauge_metric_incorrect_JSON: OK",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "test"`,
+			expectedCode: 500,
+		},
+		{
+			name:         "update_gauge_metric_JSON_novalue: FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "test", "type"gauge"}`,
+			expectedCode: 500,
+		},
+		{
+			name:         "get_counter_metric: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 404,
+		},
+		{
+			name:         "update_counter_metric: OK",
+			method:       http.MethodPost,
+			path:         "/update/counter/test/20",
+			body:         "",
+			expectedCode: 200,
+		},
+		{
+			name:         "get_counter_metric: OK",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "20",
+		},
+		{
+			name:         "update_batch_metric_wrong_JSON: FAIL",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{ "id": "test", "type": "gauge", "value": 20.0}, { "id": "test", "type": "counter", "delta": 20}`,
+			expectedCode: 500,
+		},
+		{
+			name:         "get_all_metrics: OK",
+			method:       http.MethodGet,
+			path:         "/",
+			body:         "",
+			expectedCode: 200,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := testRequest(t, ts, tt.method, tt.path, "")
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
+			if err := resp.Body.Close(); err != nil {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
 func TestUpdateMetric(t *testing.T) {
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
@@ -170,8 +461,8 @@ func TestUpdateMetric(t *testing.T) {
 		name         string
 		method       string
 		path         string
-		expectedCode int
 		expectedBody string
+		expectedCode int
 	}{
 		{
 			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
@@ -250,7 +541,75 @@ func TestUpdateMetric(t *testing.T) {
 			mr := NewMetricResource(s, cfg)
 
 			ts := httptest.NewServer(NewMetricRouter(mr))
-			resp := testRequest(t, ts, tt.method, tt.path)
+			resp := testRequest(t, ts, tt.method, tt.path, "")
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
+			if err := resp.Body.Close(); err != nil {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestPingStore(t *testing.T) {
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		t.Error("failed to initialize Logger: %w", err)
+	}
+
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   300,
+		FileStoragePath: "",
+		RestoreMetrics:  false,
+		Logger:          logger,
+		PostgresDSN:     "",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+
+	tests := []struct {
+		mockStore    func(*gomock.Controller) *mock_handlers.MockStorage
+		name         string
+		method       string
+		path         string
+		expectedBody string
+		expectedCode int
+	}{
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().PingStore(gomock.Any()).Return(nil).AnyTimes()
+				return s
+			},
+			name:         "ping_store:OK",
+			method:       http.MethodGet,
+			path:         "/ping",
+			expectedCode: 200,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().PingStore(gomock.Any()).Return(errors.New("failed to ping store.")).AnyTimes()
+				return s
+			},
+			name:         "ping_store:FAIL",
+			method:       http.MethodGet,
+			path:         "/ping",
+			expectedCode: 500,
+			expectedBody: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			s := tt.mockStore(ctrl)
+
+			mr := NewMetricResource(s, cfg)
+
+			ts := httptest.NewServer(NewMetricRouter(mr))
+			resp := testRequest(t, ts, tt.method, tt.path, "")
 			assert.Equal(t, tt.expectedCode, resp.StatusCode)
 			if err := resp.Body.Close(); err != nil {
 				assert.Error(t, err)
@@ -287,8 +646,8 @@ func TestUpdateMetricJSON(t *testing.T) {
 		method       string
 		path         string
 		body         string
-		expectedCode int
 		expectedBody string
+		expectedCode int
 	}{
 		{
 			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
@@ -346,6 +705,16 @@ func TestGetMetric(t *testing.T) {
 	var f = 54.555
 	var i int64 = 555
 
+	gauge := map[string]float64{
+		"Test01": 3535.31,
+		"Test02": 32384927.61,
+	}
+
+	counter := map[string]int64{
+		"Test03": 53528,
+		"Test04": 3241,
+	}
+
 	cfg := &models.Config{
 		Address:         "http://localhost:8080",
 		StoreInterval:   300,
@@ -361,9 +730,10 @@ func TestGetMetric(t *testing.T) {
 		mockStore    func(*gomock.Controller) *mock_handlers.MockStorage
 		name         string
 		method       string
+		body         string
 		path         string
-		expectedCode int
 		expectedBody string
+		expectedCode int
 	}{
 		{
 			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
@@ -374,6 +744,7 @@ func TestGetMetric(t *testing.T) {
 			name:         "get_gauge_metric:OK",
 			method:       http.MethodGet,
 			path:         "/value/gauge/test",
+			body:         "",
 			expectedCode: 200,
 			expectedBody: "54.555",
 		},
@@ -386,6 +757,7 @@ func TestGetMetric(t *testing.T) {
 			name:         "get_counter_metric:OK",
 			method:       http.MethodGet,
 			path:         "/value/counter/test",
+			body:         "",
 			expectedCode: 200,
 			expectedBody: "555",
 		},
@@ -399,8 +771,65 @@ func TestGetMetric(t *testing.T) {
 			name:         "get_gauge_metric:FAIL",
 			method:       http.MethodGet,
 			path:         "/value/gauge/test",
+			body:         "",
 			expectedCode: 404,
 			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetCounterMetric(gomock.Any(), gomock.Any()).Return(
+					int64(0), false, errors.New("unknown counter metric")).AnyTimes()
+				return s
+			},
+			name:         "get_counter_metric:FAIL",
+			method:       http.MethodGet,
+			path:         "/value/counter/test",
+			body:         "",
+			expectedCode: 404,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetAllMetrics(gomock.Any()).Return(
+					gauge, counter, nil).AnyTimes()
+				return s
+			},
+			name:         "get_all_metrics:OK",
+			method:       http.MethodGet,
+			path:         "/",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetAllMetrics(gomock.Any()).Return(
+					nil, nil, errors.New("failed to get all metrics.")).AnyTimes()
+				return s
+			},
+			name:         "get_all_metrics:FAIL",
+			method:       http.MethodGet,
+			path:         "/",
+			body:         "",
+			expectedCode: 500,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetCounterMetric(gomock.Any(), gomock.Any()).Return(
+					int64(100287), true, nil).AnyTimes()
+				return s
+			},
+			name:         "get_counter_metric_JSON:OK",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "PacketsIn", "type": "counter"}`,
+			expectedCode: 200,
+			expectedBody: `{"id": "PacketsIn", "type": "counter", "delta": 100287}`,
 		},
 	}
 	for _, tt := range tests {
@@ -411,7 +840,7 @@ func TestGetMetric(t *testing.T) {
 			mr := NewMetricResource(s, cfg)
 
 			ts := httptest.NewServer(NewMetricRouter(mr))
-			resp := testRequest(t, ts, tt.method, tt.path)
+			resp := testRequest(t, ts, tt.method, tt.path, tt.body)
 			assert.Equal(t, tt.expectedCode, resp.StatusCode)
 			if err := resp.Body.Close(); err != nil {
 				assert.Error(t, err)
@@ -485,8 +914,8 @@ func TestUpdateBatchJSON(t *testing.T) {
 		method       string
 		path         string
 		body         string
-		expectedCode int
 		expectedBody string
+		expectedCode int
 	}{
 		{
 			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {

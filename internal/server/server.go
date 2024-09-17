@@ -1,3 +1,4 @@
+// Package server initializes and starts Metric Server.
 package server
 
 import (
