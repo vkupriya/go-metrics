@@ -109,7 +109,7 @@ func (c *Collector) collectPsutilMetrics() {
 }
 
 func (c *Collector) startSender(ctx context.Context, ch chan []Metric) {
-	sendTicker := time.NewTicker(time.Duration(c.config.reportInterval) * time.Second)
+	sendTicker := time.NewTicker(time.Duration(c.config.ReportInterval) * time.Second)
 	defer sendTicker.Stop()
 
 	for {
@@ -124,7 +124,7 @@ func (c *Collector) startSender(ctx context.Context, ch chan []Metric) {
 }
 
 func (c *Collector) startCollector(ctx context.Context) {
-	collectTicker := time.NewTicker(time.Duration(c.config.pollInterval) * time.Second)
+	collectTicker := time.NewTicker(time.Duration(c.config.PollInterval) * time.Second)
 	defer collectTicker.Stop()
 
 	for {
@@ -208,7 +208,7 @@ func (c *Collector) sendMetrics(ctx context.Context, ch chan []Metric) error {
 					return fmt.Errorf("failed to send metrics after %d", retries)
 				}
 
-				if err := c.metricPost(metrics, c.config.metricHost); err != nil {
+				if err := c.metricPost(metrics, c.config.MetricHost); err != nil {
 					logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
 				} else {
 					break
@@ -384,7 +384,7 @@ func Start(ctx context.Context) error {
 	collector := NewCollector(*c)
 
 	if len(c.CryptoKey) != 0 {
-		if err := collector.keyExchange(c.metricHost); err != nil {
+		if err := collector.keyExchange(c.MetricHost); err != nil {
 			return fmt.Errorf("failed to send secret to metric server: %w", err)
 		}
 	}
