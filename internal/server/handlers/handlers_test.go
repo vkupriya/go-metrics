@@ -34,12 +34,62 @@ func testRequest(t *testing.T, ts *httptest.Server, method, path string, body st
 	return resp
 }
 
+func TestNewStorePostgres(t *testing.T) {
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		t.Error("failed to initialize Logger: %w", err)
+	}
+
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   5,
+		FileStoragePath: "/tmp/metrics-db.json",
+		RestoreMetrics:  false,
+		Logger:          logger,
+		PostgresDSN:     "postgres://test:test@localhost:5432/metrics?sslmode=disable",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+	_, err = NewStore(cfg)
+	require.Error(t, err)
+}
+
+func TestNewStoreFileStore(t *testing.T) {
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		t.Error("failed to initialize Logger: %w", err)
+	}
+
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   5,
+		FileStoragePath: "//metrics-db.json",
+		RestoreMetrics:  false,
+		Logger:          logger,
+		PostgresDSN:     "",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+	_, err = NewStore(cfg)
+	require.Error(t, err)
+}
+
 func TestUpdateAndGetMetricsMemStore(t *testing.T) {
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cfg, err := config.NewConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg.Logger = logger
 	cfg.FileStoragePath = ""
+	cfg.HashKey = "kjsldkfjlskd"
 	s, err := NewStore(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +107,14 @@ func TestUpdateAndGetMetricsMemStore(t *testing.T) {
 		expectedCode int
 	}{
 		{
+			name:         "ping_memstore: OK",
+			method:       http.MethodGet,
+			path:         "/ping",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "",
+		},
+		{
 			name:         "get_metric_wrongURL: FAIL",
 			method:       http.MethodGet,
 			path:         "/value/",
@@ -73,6 +131,14 @@ func TestUpdateAndGetMetricsMemStore(t *testing.T) {
 			expectedBody: "",
 		},
 		{
+			name:         "get_metric_wrongtype: FAIL",
+			method:       http.MethodGet,
+			path:         "/value/wrongtype/test",
+			body:         "",
+			expectedCode: 400,
+			expectedBody: "",
+		},
+		{
 			name:         "update_gauge_metric_wrongvalue: FAIL",
 			method:       http.MethodPost,
 			path:         "/update/gauge/test/string",
@@ -85,6 +151,20 @@ func TestUpdateAndGetMetricsMemStore(t *testing.T) {
 			path:         "/update/gauge/test/20.0",
 			body:         "",
 			expectedCode: 200,
+		},
+		{
+			name:         "update_gauge_metric_novalue: FAIL",
+			method:       http.MethodPost,
+			path:         `/update/gauge/test205/""`,
+			body:         "",
+			expectedCode: 400,
+		},
+		{
+			name:         "update_gauge_metric_noname: FAIL",
+			method:       http.MethodPost,
+			path:         "/update/gauge/''",
+			body:         "",
+			expectedCode: 404,
 		},
 		{
 			name:         "get_gauge_metric: OK",
@@ -114,8 +194,9 @@ func TestUpdateAndGetMetricsMemStore(t *testing.T) {
 			name:         "update_gauge_metric_JSON_wrongvalue: FAIL",
 			method:       http.MethodPost,
 			path:         "/value/",
-			body:         `{ "id": "test", "type": "gauge", "value": "string"}`,
+			body:         `{ "id": "test", "type": "gauge", "delta": 20.0}`,
 			expectedCode: 500,
+			expectedBody: `{ "id": "test", "type": "gauge", "value": 20.0}`,
 		},
 		{
 			name:         "get_counter_metric: FAIL",
@@ -183,7 +264,7 @@ func TestUpdateMetricFileStore(t *testing.T) {
 		Address:         "http://localhost:8080",
 		StoreInterval:   0,
 		FileStoragePath: "/tmp/metrics-db.json",
-		RestoreMetrics:  false,
+		RestoreMetrics:  true,
 		Logger:          logger,
 		PostgresDSN:     "",
 		ContextTimeout:  3,
@@ -208,7 +289,7 @@ func TestUpdateMetricFileStore(t *testing.T) {
 		{
 			name:         "get_gauge_metric: FAIL",
 			method:       http.MethodGet,
-			path:         "/value/gauge/test",
+			path:         "/value/gauge/test25",
 			body:         "",
 			expectedCode: 404,
 			expectedBody: "",
@@ -260,7 +341,7 @@ func TestUpdateMetricFileStore(t *testing.T) {
 		{
 			name:         "get_counter_metric: FAIL",
 			method:       http.MethodGet,
-			path:         "/value/counter/test",
+			path:         "/value/counter/test45",
 			body:         "",
 			expectedCode: 404,
 		},
@@ -352,6 +433,14 @@ func TestUpdateMetricFileStoreTicker(t *testing.T) {
 		expectedBody string
 		expectedCode int
 	}{
+		{
+			name:         "ping_filestore: OK",
+			method:       http.MethodGet,
+			path:         "/ping",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "",
+		},
 		{
 			name:         "get_gauge_metric: FAIL",
 			method:       http.MethodGet,
@@ -665,6 +754,19 @@ func TestUpdateMetricJSON(t *testing.T) {
 		{
 			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
 				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().UpdateGaugeMetric(gomock.Any(), gomock.Any(), gomock.Any()).Return(f, errors.New("error")).AnyTimes()
+				return s
+			},
+			name:         "update_gauge_metric:FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "PacketsIn", "type": "gauge", "value": 100287.253}`,
+			expectedCode: 500,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
 				s.EXPECT().UpdateCounterMetric(gomock.Any(), gomock.Any(), gomock.Any()).Return(i, nil).AnyTimes()
 				return s
 			},
@@ -673,6 +775,55 @@ func TestUpdateMetricJSON(t *testing.T) {
 			path:         "/update/",
 			body:         `{ "id": "PacketsIn", "type": "counter", "delta": 100287}`,
 			expectedCode: 200,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().UpdateCounterMetric(gomock.Any(), gomock.Any(), gomock.Any()).Return(i, errors.New("error")).AnyTimes()
+				return s
+			},
+			name:         "update_counter_metric:FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "PacketsIn", "type": "counter", "delta": 100287}`,
+			expectedCode: 500,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_metric_wrong_type:FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "PacketsIn", "type": "wrongtype", "delta": 100287}`,
+			expectedCode: 400,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_counter_metric_novalue:FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "PacketsIn", "type": "counter"}`,
+			expectedCode: 400,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_gauge_metric_novalue:FAIL",
+			method:       http.MethodPost,
+			path:         "/update/",
+			body:         `{ "id": "PacketsIn", "type": "gauge"}`,
+			expectedCode: 400,
 			expectedBody: "",
 		},
 	}
@@ -735,6 +886,19 @@ func TestGetMetric(t *testing.T) {
 		expectedBody string
 		expectedCode int
 	}{
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetGaugeMetric(gomock.Any(), gomock.Any()).Return(f, true, nil).AnyTimes()
+				return s
+			},
+			name:         "get_gauge_metric:OK",
+			method:       http.MethodGet,
+			path:         "/value/gauge/test",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "54.555",
+		},
 		{
 			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
 				s := mock_handlers.NewMockStorage(c)
@@ -928,6 +1092,67 @@ func TestUpdateBatchJSON(t *testing.T) {
 			path:         "/updates/",
 			body:         body,
 			expectedCode: 200,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().UpdateBatch(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("error")).AnyTimes()
+				return s
+			},
+			name:         "update_batch_metrics:OK",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         body,
+			expectedCode: 500,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_batch_metrics_gauge_novalue:FAIL",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{"id":"HeapAlloc","type":"gauge"}]`,
+			expectedCode: 400,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_batch_metrics_counter_nodelta:FAIL",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{"id":"PollCount","type":"counter"}]`,
+			expectedCode: 400,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_batch_metrics_badjson:FAIL",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{"id":"PollCount","type":"counter"}`,
+			expectedCode: 500,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				return s
+			},
+			name:         "update_batch_metrics_badtype:FAIL",
+			method:       http.MethodPost,
+			path:         "/updates/",
+			body:         `[{"delta":4,"id":"PollCount","type":"wrongtype"}]`,
+			expectedCode: 400,
 			expectedBody: "",
 		},
 	}

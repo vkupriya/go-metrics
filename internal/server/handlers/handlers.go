@@ -2,9 +2,15 @@
 package handlers
 
 import (
+	"crypto"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"html/template"
+	"io"
 	"sync"
 
 	"net/http"
@@ -100,8 +106,10 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	ml := mw.NewMiddlewareLogger(mr.config)
 	mh := mw.NewMiddlewareHash(mr.config)
 	mg := mw.NewMiddlewareGzip(mr.config)
+	md := mw.NewMiddlewareDecrypt(mr.config)
 
 	r.Use(ml.Logging)
+	r.Post("/", mr.KeyExchange)
 
 	r.Group(func(r chi.Router) {
 		r.Use(mh.HashSend)
@@ -113,16 +121,44 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 
 	r.Group(func(r chi.Router) {
 		r.Use(mh.HashCheck)
+		r.Use(md.DecryptHandle)
+		r.Use(mg.GzipHandle)
+		r.Post("/updates/", mr.UpdateBatchJSON)
+	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(mh.HashCheck)
 		r.Use(mg.GzipHandle)
 		r.Post("/value/", mr.GetMetricJSON)
 		r.Post("/update/", mr.UpdateMetricJSON)
 		r.Post("/update/{metricType}/{metricName}/{metricValue}", mr.UpdateMetric)
-		r.Post("/updates/", mr.UpdateBatchJSON)
 	})
 
 	r.Mount("/debug", middleware.Profiler())
 
 	return r
+}
+
+func (mr *MetricResource) KeyExchange(rw http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	b, _ = hex.DecodeString(string(b))
+	privateKeyBlock, _ := pem.Decode(mr.config.CryptoKey)
+	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+	if err != nil {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	secret, err := privateKey.Decrypt(nil, b, &rsa.OAEPOptions{Hash: crypto.SHA256})
+	if err != nil {
+		panic(err)
+	}
+
+	mr.config.SecretKey = secret
 }
 
 // UpdateMetric is an endpoint to update individual metric of gauge or counter type via url.
@@ -158,6 +194,8 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 			_, err = mr.store.UpdateGaugeMetric(mr.config, mname, mv)
 			if err != nil {
 				logger.Sugar().Error("failed to update gauge metric", zap.Error(err))
+				rw.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			rw.WriteHeader(http.StatusOK)
 
@@ -170,6 +208,8 @@ func (mr *MetricResource) UpdateMetric(rw http.ResponseWriter, r *http.Request) 
 			_, err = mr.store.UpdateCounterMetric(mr.config, mname, mv)
 			if err != nil {
 				logger.Sugar().Error("failed to update counter metric", zap.Error(err))
+				rw.WriteHeader(http.StatusInternalServerError)
+				return
 			}
 			rw.WriteHeader(http.StatusOK)
 		}
@@ -207,6 +247,8 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 		rv, err := mr.store.UpdateGaugeMetric(mr.config, mname, *req.Value)
 		if err != nil {
 			logger.Sugar().Error("failed to update gauge metric", zap.Error(err))
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		*req.Value = rv
 
@@ -218,6 +260,8 @@ func (mr *MetricResource) UpdateMetricJSON(rw http.ResponseWriter, r *http.Reque
 		rd, err := mr.store.UpdateCounterMetric(mr.config, mname, *req.Delta)
 		if err != nil {
 			logger.Sugar().Error("failed to update counter metric", zap.Error(err))
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		*req.Delta = rd
 	}

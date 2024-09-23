@@ -11,6 +11,8 @@ type Config struct {
 	Address         string
 	FileStoragePath string
 	PostgresDSN     string
+	CryptoKey       []byte
+	SecretKey       []byte
 	StoreInterval   int64
 	RestoreMetrics  bool
 	ContextTimeout  int64

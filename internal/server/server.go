@@ -31,6 +31,7 @@ func Start(logger *zap.Logger) {
 		"Starting server",
 		"addr", cfg.Address,
 	)
+
 	if err := http.ListenAndServe(cfg.Address, r); err != nil {
 		logger.Sugar().Fatalw(err.Error(), "event", "start server")
 	}
