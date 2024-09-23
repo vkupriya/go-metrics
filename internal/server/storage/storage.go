@@ -200,6 +200,9 @@ func (m *MemStorage) PingStore(c *models.Config) error {
 	return nil
 }
 
+func (m *MemStorage) Close() {
+}
+
 func (f *FileStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {
 	f.gauge[name] = value
 	if c.StoreInterval == 0 {
@@ -319,6 +322,9 @@ func (f *FileStorage) SaveMetricsTicker(c *models.Config) {
 
 func (f *FileStorage) PingStore(c *models.Config) error {
 	return nil
+}
+
+func (f *FileStorage) Close() {
 }
 
 func (p *PostgresStorage) UpdateGaugeMetric(c *models.Config, name string, value float64) (float64, error) {

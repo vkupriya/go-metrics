@@ -14,6 +14,7 @@ func TestConfig(t *testing.T) {
 	t.Setenv("FILE_STORAGE_PATH", "/tmp/store.txt")
 	t.Setenv("RESTORE", "false")
 	t.Setenv("CRYPTO_KEY", "../../../keys/private.pem")
+	t.Setenv("CONFIG", "../../../cmd/server/config.json")
 	t.Run("test01", func(t *testing.T) {
 		t.Setenv("DATABASE_DSN", "postgres://sysmetrics:metrics@localhost:5432/metrics?sslmode=disable")
 		c, err := NewConfig()

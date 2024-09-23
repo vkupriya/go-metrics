@@ -66,6 +66,7 @@ func TestAbs(t *testing.T) {
 
 func TestSendMetrics(t *testing.T) {
 	c := Config{}
+	c.SecretKey, _ = generateRandom(32)
 	collector := NewCollector(c)
 	var f = 27873.01
 	metrics := []Metric{
@@ -93,6 +94,7 @@ func TestConfig(t *testing.T) {
 	t.Setenv("KEY", "ksjdflksjdf")
 	t.Setenv("POLL_INTERVAL", "10")
 	t.Setenv("REPORT_INTERVAL", "20")
+	t.Setenv("CONFIG", "../../cmd/agent/config.json")
 
 	t.Run("test01", func(t *testing.T) {
 		c, err := NewConfig()
@@ -106,4 +108,14 @@ func TestConfig(t *testing.T) {
 		assert.Equal(t, c.PollInterval, int64(10))
 		assert.Equal(t, c.ReportInterval, int64(20))
 	})
+}
+
+func TestGenerateRandom(t *testing.T) {
+	res, err := generateRandom(32)
+	if err != nil {
+		t.Error("failed to generate random sequence.")
+	}
+	if len(res) != int(32) {
+		t.Error("incorrect length of random sequence.")
+	}
 }

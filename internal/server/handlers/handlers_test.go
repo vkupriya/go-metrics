@@ -76,6 +76,60 @@ func TestNewStoreFileStore(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestKeyExchange(t *testing.T) {
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &models.Config{
+		Address:         "http://localhost:8080",
+		StoreInterval:   5,
+		FileStoragePath: "/tmp/metrics-db.json",
+		RestoreMetrics:  false,
+		Logger:          logger,
+		PostgresDSN:     "",
+		ContextTimeout:  3,
+		HashKey:         "",
+	}
+
+	s, err := NewStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mr := NewMetricResource(s, cfg)
+
+	ts := httptest.NewServer(NewMetricRouter(mr))
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		body         string
+		expectedBody string
+		expectedCode int
+	}{
+		{
+			name:         "key_exchange: FAIL",
+			method:       http.MethodPost,
+			path:         "/",
+			body:         "",
+			expectedCode: 200,
+			expectedBody: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := testRequest(t, ts, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.expectedCode, resp.StatusCode)
+			if err := resp.Body.Close(); err != nil {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
 func TestUpdateAndGetMetricsMemStore(t *testing.T) {
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
@@ -525,6 +579,7 @@ func TestUpdateMetricFileStoreTicker(t *testing.T) {
 		})
 	}
 }
+
 func TestUpdateMetric(t *testing.T) {
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
@@ -994,6 +1049,34 @@ func TestGetMetric(t *testing.T) {
 			body:         `{ "id": "PacketsIn", "type": "counter"}`,
 			expectedCode: 200,
 			expectedBody: `{"id": "PacketsIn", "type": "counter", "delta": 100287}`,
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetCounterMetric(gomock.Any(), gomock.Any()).Return(
+					int64(100287), false, errors.New("error")).AnyTimes()
+				return s
+			},
+			name:         "get_counter_metric_JSON:FAIL",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "PacketsIn", "type": "counter"}`,
+			expectedCode: 404,
+			expectedBody: "",
+		},
+		{
+			mockStore: func(c *gomock.Controller) *mock_handlers.MockStorage {
+				s := mock_handlers.NewMockStorage(c)
+				s.EXPECT().GetGaugeMetric(gomock.Any(), gomock.Any()).Return(
+					float64(10028.97), false, errors.New("error")).AnyTimes()
+				return s
+			},
+			name:         "get_gauge_metric_JSON:FAIL",
+			method:       http.MethodPost,
+			path:         "/value/",
+			body:         `{ "id": "PacketsIn", "type": "gauge"}`,
+			expectedCode: 404,
+			expectedBody: "",
 		},
 	}
 	for _, tt := range tests {

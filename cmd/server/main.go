@@ -26,5 +26,7 @@ func main() {
 	logger.Sugar().Infof("Build date: %s", buildDate)
 	logger.Sugar().Infof("Build commit: %s", buildCommit)
 
-	server.Start(logger)
+	if err := server.Start(logger); err != nil {
+		logger.Sugar().Errorf("server has been terminated with error: %w", err)
+	}
 }
