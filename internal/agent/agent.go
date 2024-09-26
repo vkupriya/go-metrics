@@ -318,6 +318,7 @@ func (c *Collector) keyExchange(h string) error {
 
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
+	client.SetRetryCount(3).SetRetryWaitTime(5 * time.Second).SetRetryMaxWaitTime(20 * time.Second)
 
 	url := fmt.Sprintf("http://%s/", h)
 

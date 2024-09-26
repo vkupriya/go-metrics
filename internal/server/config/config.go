@@ -27,11 +27,9 @@ const (
 	defaultContextTimeout int64 = 3
 )
 
-var privatePEM []byte
-var secretKey []byte
-var err error
-
 func NewConfig() (*models.Config, error) {
+	var err error
+
 	a := flag.String("a", "localhost:8080", "Metric server host address and port.")
 	i := flag.Int64("i", defaultStoreInterval, "Store interval in seconds, 0 sets it to synchronous.")
 	p := flag.String("f", "/tmp/metrics-db.json", "File storage path.")
@@ -43,8 +41,8 @@ func NewConfig() (*models.Config, error) {
 	flag.Parse()
 
 	cfg := ConfigFile{}
-	privatePEM = make([]byte, 0)
-	secretKey = make([]byte, 0)
+	privatePEM := make([]byte, 0)
+	secretKey := make([]byte, 0)
 
 	if envConfig, ok := os.LookupEnv("CONFIG"); ok {
 		configFile = &envConfig
