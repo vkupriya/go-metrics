@@ -2,6 +2,7 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -11,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func Start(logger *zap.Logger) {
+func Start(logger *zap.Logger) error {
 	cfg, err := config.NewConfig()
 	if err != nil {
 		log.Fatal(zap.Error(err))
@@ -33,6 +34,7 @@ func Start(logger *zap.Logger) {
 	)
 
 	if err := http.ListenAndServe(cfg.Address, r); err != nil {
-		logger.Sugar().Fatalw(err.Error(), "event", "start server")
+		return fmt.Errorf("server failed: %w", err)
 	}
+	return nil
 }
