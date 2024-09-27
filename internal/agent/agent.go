@@ -5,12 +5,19 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+
 	"fmt"
-	"math/rand"
+	mrand "math/rand"
 	"runtime"
 	"strconv"
 	"sync"
@@ -26,7 +33,7 @@ import (
 type Collector struct {
 	gauge        map[string]float64
 	counter      map[string]int64
-	config       Config
+	config       *Config
 	gaugeMutex   sync.Mutex
 	counterMutex sync.Mutex
 }
@@ -38,7 +45,7 @@ type Metric struct {
 	MType string   `json:"type"`            // параметр, принимающий значение gauge или counter
 }
 
-func NewCollector(cfg Config) *Collector {
+func NewCollector(cfg *Config) *Collector {
 	return &Collector{
 		gauge:   make(map[string]float64),
 		counter: make(map[string]int64),
@@ -78,7 +85,7 @@ func (c *Collector) collectMetrics() {
 	c.gauge[`StackSys`] = float64(memStats.StackSys)
 	c.gauge[`Sys`] = float64(memStats.Sys)
 	c.gauge[`TotalAlloc`] = float64(memStats.TotalAlloc)
-	c.gauge[`RandomValue`] = rand.Float64()
+	c.gauge[`RandomValue`] = mrand.Float64()
 	c.gaugeMutex.Unlock()
 
 	c.counterMutex.Lock()
@@ -220,24 +227,69 @@ func (c *Collector) sendMetrics(ctx context.Context, ch chan []Metric) error {
 func (c *Collector) metricPost(m []Metric, h string) error {
 	logger := c.config.Logger
 	const httpTimeout int = 30
+	var body []byte
+
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
 
 	url := fmt.Sprintf("http://%s/updates/", h)
 
-	body, err := json.Marshal(m)
+	b, err := json.Marshal(m)
 	if err != nil {
 		return fmt.Errorf("error encoding JSON response for metrics batch: %w", err)
 	}
 
 	var gz bytes.Buffer
 	w := gzip.NewWriter(&gz)
-	_, err = w.Write(body)
+	_, err = w.Write(b)
 	if err != nil {
 		return fmt.Errorf("failed to write into gzip.NewWriter metrics batch: %w", err)
 	}
 	if err = w.Close(); err != nil {
 		return fmt.Errorf("failed to close gzip.NewWriter for metrics batch: %w", err)
+	}
+
+	if len(c.config.SecretKey) != 0 {
+		block, err := aes.NewCipher(c.config.SecretKey)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		aesgcm, err := cipher.NewGCM(block)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		nonce, err := generateRandom(aesgcm.NonceSize())
+		if err != nil {
+			fmt.Printf("error: %v\n", err)
+		}
+
+		body = aesgcm.Seal(nonce, nonce, gz.Bytes(), nil)
+
+		bodyHex := make([]byte, hex.EncodedLen(len(body)))
+		hex.Encode(bodyHex, body)
+
+		if c.config.HashKey != "" {
+			c.hashHeader(client, bodyHex)
+		}
+
+		resp, err := client.R().SetHeader("Content-Type", "application/json").
+			SetHeader("Content-Encoding", "gzip").
+			SetBody(bodyHex).
+			Post(url)
+
+		if c.config.HashKey != "" {
+			c.hashHeader(client, body)
+		}
+
+		if err != nil {
+			return fmt.Errorf("error to do http post: %w", err)
+		}
+
+		logger.Sugar().Infof("sent metrics batch Status code: %d\n", resp.StatusCode())
+
+		return nil
 	}
 
 	if c.config.HashKey != "" {
@@ -248,6 +300,7 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 		SetHeader("Content-Encoding", "gzip").
 		SetBody(&gz).
 		Post(url)
+
 	if err != nil {
 		return fmt.Errorf("error to do http post: %w", err)
 	}
@@ -255,6 +308,60 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 	logger.Sugar().Infof("sent metrics batch Status code: %d\n", resp.StatusCode())
 
 	return nil
+}
+
+func (c *Collector) keyExchange(h string) error {
+	const httpTimeout int = 30
+	const secretKeyLength int = 32
+
+	logger := c.config.Logger
+
+	client := resty.New()
+	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
+
+	url := fmt.Sprintf("http://%s/", h)
+
+	secretKey, err := generateRandom(secretKeyLength)
+
+	if err != nil {
+		return fmt.Errorf("failed to generate secretKey: %w", err)
+	}
+
+	publicKeyBlock, _ := pem.Decode(c.config.CryptoKey)
+	publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse public key: %w", err)
+	}
+
+	cryptoBody, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey.(*rsa.PublicKey), secretKey, nil)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt secretkey: %w", err)
+	}
+
+	resp, err := client.R().
+		SetHeader("Content-Type", "plain/text").
+		SetBody(hex.EncodeToString(cryptoBody)).
+		Post(url)
+
+	if err != nil {
+		return fmt.Errorf("error to do http post: %w", err)
+	}
+
+	logger.Sugar().Infof("sent symmetric key to server, status code: %d\n", resp.StatusCode())
+
+	c.config.SecretKey = secretKey
+
+	return nil
+}
+
+func generateRandom(size int) ([]byte, error) {
+	b := make([]byte, size)
+	_, err := rand.Read(b)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate random sequence: %w", err)
+	}
+
+	return b, nil
 }
 
 func (c *Collector) hashHeader(req *resty.Client, body []byte) {
@@ -274,7 +381,14 @@ func Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	collector := NewCollector(*c)
+	collector := NewCollector(c)
+
+	if len(c.CryptoKey) != 0 {
+		if err := collector.keyExchange(c.metricHost); err != nil {
+			return fmt.Errorf("failed to send secret to metric server: %w", err)
+		}
+	}
+
 	if err := collector.StartTickers(ctx); err != nil {
 		fmt.Println("Error in Start Tickers")
 		return fmt.Errorf("failed to run tickers: %w", err)

@@ -15,6 +15,8 @@ type Config struct {
 	Logger         *zap.Logger
 	metricHost     string
 	HashKey        string
+	CryptoKey      []byte
+	SecretKey      []byte
 	reportInterval int64
 	pollInterval   int64
 	httpTimeout    int64
@@ -28,12 +30,16 @@ func NewConfig() (*Config, error) {
 		httpTimeout      int64 = 30
 		rateLimitDefault int   = 3
 	)
+	var certPEM []byte
+	var secretKey []byte
+	var err error
 
 	metricHost := flag.String("a", "localhost:8080", "Address and port of the metric server.")
 	reportInterval := flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
 	pollInterval := flag.Int64("p", pollIntDefault, "Metric collection interval in seconds")
 	rateLimit := flag.Int("l", rateLimitDefault, "Rate Limit for concurrent server requests.")
 	key := flag.String("k", "", "Hash key")
+	c := flag.String("c", "", "Path to public key for asymmetric encryption.")
 	flag.Parse()
 
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
@@ -68,6 +74,17 @@ func NewConfig() (*Config, error) {
 		key = &envKey
 	}
 
+	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok {
+		c = &envCryptoKey
+	}
+
+	if *c != "" {
+		certPEM, err = os.ReadFile(*c)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read public key file %s: %w", *c, err)
+		}
+	}
+
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
 	if err != nil {
@@ -82,5 +99,7 @@ func NewConfig() (*Config, error) {
 		rateLimit:      *rateLimit,
 		Logger:         logger,
 		HashKey:        *key,
+		CryptoKey:      certPEM,
+		SecretKey:      secretKey,
 	}, nil
 }

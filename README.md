@@ -42,7 +42,7 @@ go test -v -coverpkg=./... -coverprofile=profile.temp ./... -tags=integration
 Удаляем сгенерированные файлы mock*.go из профиля, чтобы не влияли на результат вычисления покрытия
 
 ```bash
-cat profile.temp | grep -v "mock_store.go" > profile.cov
+cat profile.temp | egrep -v "mock_store.go|test/main|staticlint|keygen" > profile.cov
 
 ```
 
