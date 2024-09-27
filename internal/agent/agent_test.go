@@ -95,7 +95,7 @@ func TestConfig(t *testing.T) {
 	t.Setenv("KEY", "ksjdflksjdf")
 	t.Setenv("POLL_INTERVAL", "10")
 	t.Setenv("REPORT_INTERVAL", "20")
-	t.Setenv("CONFIG", "../../cmd/agent/config.json")
+	t.Setenv("CONFIG", "")
 
 	t.Run("test01", func(t *testing.T) {
 		c, err := NewConfig()

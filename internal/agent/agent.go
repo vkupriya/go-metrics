@@ -313,12 +313,15 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 func (c *Collector) keyExchange(h string) error {
 	const httpTimeout int = 30
 	const secretKeyLength int = 32
+	const retryCount int = 3
+	const retryWaitTime time.Duration = 5 * time.Second
+	const retryMaxWaitTime time.Duration = 20 * time.Second
 
 	logger := c.config.Logger
 
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
-	client.SetRetryCount(3).SetRetryWaitTime(5 * time.Second).SetRetryMaxWaitTime(20 * time.Second)
+	client.SetRetryCount(retryCount).SetRetryWaitTime(retryWaitTime).SetRetryMaxWaitTime(retryMaxWaitTime)
 
 	url := fmt.Sprintf("http://%s/", h)
 
