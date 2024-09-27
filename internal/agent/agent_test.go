@@ -100,10 +100,10 @@ func TestConfig(t *testing.T) {
 			t.Error(err)
 		}
 
-		assert.Equal(t, c.metricHost, "localhost:8443")
+		assert.Equal(t, c.MetricHost, "localhost:8443")
 		assert.Equal(t, c.rateLimit, 5)
 		assert.Equal(t, c.HashKey, "ksjdflksjdf")
-		assert.Equal(t, c.pollInterval, int64(10))
-		assert.Equal(t, c.reportInterval, int64(20))
+		assert.Equal(t, c.PollInterval, int64(10))
+		assert.Equal(t, c.ReportInterval, int64(20))
 	})
 }
