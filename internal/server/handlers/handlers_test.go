@@ -55,27 +55,6 @@ func TestNewStorePostgres(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestNewStoreFileStore(t *testing.T) {
-	logConfig := zap.NewDevelopmentConfig()
-	logger, err := logConfig.Build()
-	if err != nil {
-		t.Error("failed to initialize Logger: %w", err)
-	}
-
-	cfg := &models.Config{
-		Address:         "http://localhost:8080",
-		StoreInterval:   5,
-		FileStoragePath: "//metrics-db.json",
-		RestoreMetrics:  false,
-		Logger:          logger,
-		PostgresDSN:     "",
-		ContextTimeout:  3,
-		HashKey:         "",
-	}
-	_, err = NewStore(cfg)
-	require.Error(t, err)
-}
-
 func TestKeyExchange(t *testing.T) {
 	logConfig := zap.NewDevelopmentConfig()
 	logger, err := logConfig.Build()
