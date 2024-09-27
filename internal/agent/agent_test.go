@@ -9,7 +9,7 @@ import (
 
 func TestAbs(t *testing.T) {
 	c := Config{}
-	collector := NewCollector(c)
+	collector := NewCollector(&c)
 	collector.collectMetrics()
 	collector.collectPsutilMetrics()
 
@@ -67,7 +67,8 @@ func TestAbs(t *testing.T) {
 func TestSendMetrics(t *testing.T) {
 	c := Config{}
 	c.SecretKey, _ = generateRandom(32)
-	collector := NewCollector(c)
+	collector := NewCollector(&c)
+
 	var f = 27873.01
 	metrics := []Metric{
 		{

@@ -29,4 +29,5 @@ func main() {
 	if err := server.Start(logger); err != nil {
 		logger.Sugar().Errorf("server has been terminated with error: %w", err)
 	}
+
 }

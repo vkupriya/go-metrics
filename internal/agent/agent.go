@@ -33,7 +33,7 @@ import (
 type Collector struct {
 	gauge        map[string]float64
 	counter      map[string]int64
-	config       Config
+	config       *Config
 	gaugeMutex   sync.Mutex
 	counterMutex sync.Mutex
 }
@@ -45,7 +45,7 @@ type Metric struct {
 	MType string   `json:"type"`            // параметр, принимающий значение gauge или counter
 }
 
-func NewCollector(cfg Config) *Collector {
+func NewCollector(cfg *Config) *Collector {
 	return &Collector{
 		gauge:   make(map[string]float64),
 		counter: make(map[string]int64),
@@ -382,7 +382,7 @@ func Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	collector := NewCollector(*c)
+	collector := NewCollector(c)
 
 	if len(c.CryptoKey) != 0 {
 		if err := collector.keyExchange(c.MetricHost); err != nil {

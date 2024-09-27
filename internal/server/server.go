@@ -66,6 +66,7 @@ func Start(logger *zap.Logger) error {
 		"addr", cfg.Address,
 	)
 
+
 	g.Go(func() error {
 		defer logger.Sugar().Info("closed store")
 
@@ -115,6 +116,7 @@ func Start(logger *zap.Logger) error {
 
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("go routines stopped with error: %w", err)
+
 	}
 	return nil
 }
