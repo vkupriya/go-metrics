@@ -27,11 +27,9 @@ const (
 	defaultContextTimeout int64 = 3
 )
 
-var privatePEM []byte
-var secretKey []byte
-var err error
-
 func NewConfig() (*models.Config, error) {
+	var err error
+
 	a := flag.String("a", "localhost:8080", "Metric server host address and port.")
 	i := flag.Int64("i", defaultStoreInterval, "Store interval in seconds, 0 sets it to synchronous.")
 	p := flag.String("f", "/tmp/metrics-db.json", "File storage path.")
@@ -43,15 +41,14 @@ func NewConfig() (*models.Config, error) {
 	flag.Parse()
 
 	cfg := ConfigFile{}
-	privatePEM = make([]byte, 0)
-	secretKey = make([]byte, 0)
+	privatePEM := make([]byte, 0)
+	secretKey := make([]byte, 0)
 
 	if envConfig, ok := os.LookupEnv("CONFIG"); ok {
 		configFile = &envConfig
 	}
 
 	if *configFile != "" {
-		fmt.Printf("Opening config file: %s", *configFile)
 		fcontent, err := os.ReadFile(*configFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open config file %s: %w", *configFile, err)
@@ -63,16 +60,24 @@ func NewConfig() (*models.Config, error) {
 		}
 	}
 
+	if cfg.Address != "" {
+		a = &cfg.Address
+	}
+
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		a = &envAddr
-	} else if cfg.Address != "" {
-		a = &cfg.Address
+	}
+
+	if cfg.PostgresDSN != "" && *d == "" {
+		d = &cfg.PostgresDSN
 	}
 
 	if envDSN, ok := os.LookupEnv("DATABASE_DSN"); ok {
 		d = &envDSN
-	} else if cfg.PostgresDSN != "" && *d == "" {
-		d = &cfg.PostgresDSN
+	}
+
+	if cfg.StoreInterval != 0 {
+		i = &cfg.StoreInterval
 	}
 
 	if envStoreInterval, ok := os.LookupEnv("STORE_INTERVAL"); ok {
@@ -81,14 +86,18 @@ func NewConfig() (*models.Config, error) {
 			return nil, errors.New("failed to convert env var STORE_INTERVAL to integer")
 		}
 		i = &envStoreInterval
-	} else if cfg.StoreInterval != 0 {
-		i = &cfg.StoreInterval
+	}
+
+	if cfg.FileStoragePath != "" {
+		p = &cfg.FileStoragePath
 	}
 
 	if envFileStoragePath, ok := os.LookupEnv("FILE_STORAGE_PATH"); ok {
 		p = &envFileStoragePath
-	} else if cfg.FileStoragePath != "" {
-		p = &cfg.FileStoragePath
+	}
+
+	if cfg.RestoreMetrics != *r {
+		r = &cfg.RestoreMetrics
 	}
 
 	if envRestore, ok := os.LookupEnv("RESTORE"); ok {
@@ -97,18 +106,18 @@ func NewConfig() (*models.Config, error) {
 			return nil, errors.New("failed to convert env var RESTORE to bool")
 		}
 		r = &envRestore
-	} else if cfg.RestoreMetrics != *r {
-		r = &cfg.RestoreMetrics
 	}
 
 	if envKey, ok := os.LookupEnv("KEY"); ok {
 		k = &envKey
 	}
 
+	if cfg.CryptoKeyFile != "" {
+		cr = &cfg.CryptoKeyFile
+	}
+
 	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok {
 		cr = &envCryptoKey
-	} else if cfg.CryptoKeyFile != "" {
-		cr = &cfg.CryptoKeyFile
 	}
 
 	if *cr != "" {

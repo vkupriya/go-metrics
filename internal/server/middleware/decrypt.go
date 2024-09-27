@@ -26,33 +26,43 @@ func NewMiddlewareDecrypt(c *models.Config) *MiddlewareDecrypt {
 func (d *MiddlewareDecrypt) DecryptHandle(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := d.config.Logger
-		if len(d.config.SecretKey) != 0 {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				logger.Sugar().Error("failed to read request body", zap.Error(err))
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
-			body, _ = hex.DecodeString(string(body))
-
-			block, err := aes.NewCipher(d.config.SecretKey)
-			if err != nil {
-				panic(err.Error())
-			}
-
-			aesgcm, err := cipher.NewGCM(block)
-			if err != nil {
-				panic(err.Error())
-			}
-
-			nonce, body := body[:aesgcm.NonceSize()], body[aesgcm.NonceSize():]
-
-			srcBody, err := aesgcm.Open(nil, nonce, body, nil)
-			if err != nil {
-				panic(err.Error())
-			}
-			r.Body = io.NopCloser(bytes.NewBuffer(srcBody))
+		if len(d.config.SecretKey) == 0 {
+			h.ServeHTTP(w, r)
+			return
 		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			logger.Sugar().Error("failed to read request body", zap.Error(err))
+			http.Error(w, "", http.StatusInternalServerError)
+			return
+		}
+		body, _ = hex.DecodeString(string(body))
+
+		block, err := aes.NewCipher(d.config.SecretKey)
+		if err != nil {
+			logger.Sugar().Error("failed to create new cypher block", zap.Error(err))
+			http.Error(w, "", http.StatusInternalServerError)
+			return
+		}
+
+		aesgcm, err := cipher.NewGCM(block)
+		if err != nil {
+			logger.Sugar().Error("failed to create new GCM block", zap.Error(err))
+			http.Error(w, "", http.StatusInternalServerError)
+			return
+		}
+
+		nonce, body := body[:aesgcm.NonceSize()], body[aesgcm.NonceSize():]
+
+		srcBody, err := aesgcm.Open(nil, nonce, body, nil)
+		if err != nil {
+			logger.Sugar().Error("failed to decrypt body", zap.Error(err))
+			http.Error(w, "", http.StatusInternalServerError)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewBuffer(srcBody))
+
 		h.ServeHTTP(w, r)
 	})
 }

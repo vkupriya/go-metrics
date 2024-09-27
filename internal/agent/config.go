@@ -68,10 +68,12 @@ func NewConfig() (*Config, error) {
 		}
 	}
 
+	if cfg.MetricHost != "" {
+		metricHost = &cfg.MetricHost
+	}
+
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		metricHost = &envAddr
-	} else if cfg.MetricHost != "" {
-		metricHost = &cfg.MetricHost
 	}
 
 	if envRateLimit, ok := os.LookupEnv("RATE_LIMIT"); ok {
@@ -82,14 +84,20 @@ func NewConfig() (*Config, error) {
 		rateLimit = &envRateLimit
 	}
 
+	if cfg.PollInterval != 0 {
+		pollInterval = &cfg.PollInterval
+	}
+
 	if envPoll, ok := os.LookupEnv("POLL_INTERVAL"); ok {
 		envPollInt, err := strconv.ParseInt(envPoll, 10, 64)
 		if err != nil {
 			return nil, errors.New("failed to convert POLL_INTERVAL to integer")
 		}
 		pollInterval = &envPollInt
-	} else if cfg.PollInterval != 0 {
-		pollInterval = &cfg.PollInterval
+	}
+
+	if cfg.ReportInterval != 0 {
+		reportInterval = &cfg.ReportInterval
 	}
 
 	if envReport, ok := os.LookupEnv("REPORT_INTERVAL"); ok {
@@ -98,18 +106,18 @@ func NewConfig() (*Config, error) {
 			return nil, errors.New("failed to convert REPORT_INTERVAL to integer")
 		}
 		reportInterval = &envReportInt
-	} else if cfg.ReportInterval != 0 {
-		reportInterval = &cfg.ReportInterval
 	}
 
 	if envKey, ok := os.LookupEnv("KEY"); ok {
 		hashKey = &envKey
 	}
 
+	if cfg.CryptoKeyFile != "" {
+		cryptoKey = &cfg.CryptoKeyFile
+	}
+
 	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok {
 		cryptoKey = &envCryptoKey
-	} else if cfg.CryptoKeyFile != "" {
-		cryptoKey = &cfg.CryptoKeyFile
 	}
 
 	if *cryptoKey != "" {

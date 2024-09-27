@@ -27,7 +27,7 @@ func main() {
 	logger.Sugar().Infof("Build commit: %s", buildCommit)
 
 	if err := server.Start(logger); err != nil {
-		log.Printf("error running server: %v", err)
+		logger.Sugar().Errorf("server has been terminated with error: %w", err)
 	}
-	log.Println("agent stopped.")
+
 }
