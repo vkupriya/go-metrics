@@ -43,7 +43,7 @@ func findOutboundIP(l *zap.Logger, h string) (net.IP, error) {
 		host = "127.0.0.1"
 	}
 	// Sending udp to port 80, expecting no response
-	host = fmt.Sprintf("%s:80", host)
+	host += ":80"
 	conn, err := net.Dial("udp4", host)
 	defer func() {
 		if err := conn.Close(); err != nil {
