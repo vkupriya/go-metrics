@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 
@@ -18,6 +19,7 @@ type ConfigFile struct {
 	CryptoKeyFile   string `json:"crypto_key,omitempty"`
 	FileStoragePath string `json:"store_file,omitempty"`
 	PostgresDSN     string `json:"database_dsn,omitempty"`
+	TrustedSubnet   string `json:"trusted_subnet,omitempty"`
 	RestoreMetrics  bool   `json:"restore,omitempty"`
 	StoreInterval   int64  `json:"store_interval,omitempty"`
 }
@@ -29,14 +31,16 @@ const (
 
 func NewConfig() (*models.Config, error) {
 	var err error
+	var trustedSubnet *net.IPNet
 
 	a := flag.String("a", "localhost:8080", "Metric server host address and port.")
 	i := flag.Int64("i", defaultStoreInterval, "Store interval in seconds, 0 sets it to synchronous.")
 	p := flag.String("f", "/tmp/metrics-db.json", "File storage path.")
 	r := flag.Bool("r", true, "Restore in memory DB at start up.")
 	d := flag.String("d", "", "PostgreSQL DSN")
-	k := flag.String("k", "", "Key for HMAC signature ")
+	k := flag.String("k", "", "Key for HMAC signature.")
 	cr := flag.String("cr", "", "Path to assymetric crypto private key.")
+	t := flag.String("t", "", "Accepting metrics from Trusted IP CIDR only.")
 	configFile := flag.String("c", "", "Path to json config file.")
 	flag.Parse()
 
@@ -127,6 +131,22 @@ func NewConfig() (*models.Config, error) {
 		}
 	}
 
+	if cfg.TrustedSubnet != "" {
+		t = &cfg.TrustedSubnet
+	}
+
+	if envTrustedSubnet, ok := os.LookupEnv("TRUSTED_SUBNET"); ok {
+		t = &envTrustedSubnet
+	}
+
+	if *t != "" {
+		_, trustedSubnet, err = net.ParseCIDR(*t)
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return nil, fmt.Errorf("trusted subnet is incorrect format, expected 1.2.3.4/24")
+		}
+	}
+	fmt.Println("TrustedSubnet: ", trustedSubnet)
 	return &models.Config{
 		Address:         *a,
 		StoreInterval:   *i,
@@ -137,5 +157,6 @@ func NewConfig() (*models.Config, error) {
 		HashKey:         *k,
 		CryptoKey:       privatePEM,
 		SecretKey:       secretKey,
+		TrustedSubnet:   trustedSubnet,
 	}, nil
 }

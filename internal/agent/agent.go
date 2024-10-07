@@ -231,6 +231,7 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 
 	client := resty.New()
 	client.SetTimeout(time.Duration(httpTimeout) * time.Second)
+	client.SetHeader("X-Real-IP", c.config.OutboundIP.String())
 
 	url := fmt.Sprintf("http://%s/updates/", h)
 
@@ -343,7 +344,7 @@ func (c *Collector) keyExchange(h string) error {
 	}
 
 	resp, err := client.R().
-		SetHeader("Content-Type", "plain/text").
+		SetHeader("Content-Type", "application/json").
 		SetBody(hex.EncodeToString(cryptoBody)).
 		Post(url)
 

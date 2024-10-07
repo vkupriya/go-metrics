@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"strings"
 
 	"os"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 
 type Config struct {
 	Logger         *zap.Logger
+	OutboundIP     net.IP
 	MetricHost     string `json:"address,omitempty"`
 	HashKey        string
 	CryptoKey      []byte `json:"crypto_key,omitempty"`
@@ -31,6 +34,35 @@ type ConfigFile struct {
 	PollInterval   int64  `json:"poll_interval,omitempty"`
 }
 
+func findOutboundIP(l *zap.Logger, h string) (net.IP, error) {
+	// removing 'http://' if present
+	hostport := strings.Replace(h, "http://", "", 1)
+	fmt.Println("hostport:", hostport)
+	host := strings.Split(hostport, ":")[0]
+	if host == "" || host == "localhost" {
+		host = "127.0.0.1"
+	}
+	// Sending udp to port 80, expecting no response
+	host = fmt.Sprintf("%s:80", host)
+	conn, err := net.Dial("udp4", host)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			l.Sugar().Error(zap.Error(err))
+		}
+	}()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify outbound IP: %w", err)
+	}
+
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return nil, errors.New("unknown outbound IP address")
+	}
+
+	return localAddr.IP, nil
+}
+
 func NewConfig() (*Config, error) {
 	const (
 		pollIntDefault   int64 = 1
@@ -43,8 +75,14 @@ func NewConfig() (*Config, error) {
 	var err error
 	cfg := ConfigFile{}
 
+	logConfig := zap.NewDevelopmentConfig()
+	logger, err := logConfig.Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize Logger: %w", err)
+	}
+
 	metricHost := flag.String("a", "localhost:8080", "Address and port of the metric server.")
-	reportInterval := flag.Int64("r", pollIntDefault, "Metrics report interval in seconds.")
+	reportInterval := flag.Int64("r", reportIntDefault, "Metrics report interval in seconds.")
 	pollInterval := flag.Int64("p", pollIntDefault, "Metric collection interval in seconds")
 	rateLimit := flag.Int("l", rateLimitDefault, "Rate Limit for concurrent server requests.")
 	hashKey := flag.String("k", "", "Hash key")
@@ -74,6 +112,11 @@ func NewConfig() (*Config, error) {
 
 	if envAddr, ok := os.LookupEnv("ADDRESS"); ok {
 		metricHost = &envAddr
+	}
+
+	outboundIP, err := findOutboundIP(logger, *metricHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed in findOutboundIP function: %w", err)
 	}
 
 	if envRateLimit, ok := os.LookupEnv("RATE_LIMIT"); ok {
@@ -127,12 +170,6 @@ func NewConfig() (*Config, error) {
 		}
 	}
 
-	logConfig := zap.NewDevelopmentConfig()
-	logger, err := logConfig.Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Logger: %w", err)
-	}
-
 	return &Config{
 		MetricHost:     *metricHost,
 		ReportInterval: *reportInterval,
@@ -143,5 +180,6 @@ func NewConfig() (*Config, error) {
 		HashKey:        *hashKey,
 		CryptoKey:      certPEM,
 		SecretKey:      secretKey,
+		OutboundIP:     outboundIP,
 	}, nil
 }
