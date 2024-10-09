@@ -36,32 +36,32 @@ type MetricServer struct {
 func (m *MetricServer) UpdateMetric(ctx context.Context, in *pb.UpdateMetricRequest) (*pb.UpdateMetricResponse, error) {
 	var response pb.UpdateMetricResponse
 
-	modelMetric, err := ProtoToMetric(in.Metric)
+	modelMetric, err := ProtoToMetric(in.GetMetric())
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert proto Metric into model Metric: %w", err)
 	}
 	switch modelMetric.MType {
 	case "gauge":
-		gaugeValue, err := m.Store.UpdateGaugeMetric(m.config, in.Metric.Id, in.Metric.Gauge)
+		gaugeValue, err := m.Store.UpdateGaugeMetric(m.config, in.GetMetric().GetId(), in.GetMetric().GetGauge())
 		if err != nil {
-			response.Error = fmt.Sprintf("failed to update gauge metric: %s", in.Metric.Id)
+			response.Error = fmt.Sprintf("failed to update gauge metric: %s", in.GetMetric().GetId())
 		}
 		response.Metric = &pb.Metric{
-			Id:    in.Metric.Id,
-			Mtype: in.Metric.Mtype,
+			Id:    in.GetMetric().GetId(),
+			Mtype: in.GetMetric().GetMtype(),
 			Gauge: gaugeValue,
 		}
 
 		return &response, nil
 
 	case "counter":
-		counterValue, err := m.Store.UpdateCounterMetric(m.config, in.Metric.Id, in.Metric.Delta)
+		counterValue, err := m.Store.UpdateCounterMetric(m.config, in.GetMetric().GetId(), in.GetMetric().GetDelta())
 		if err != nil {
-			response.Error = fmt.Sprintf("failed to update counter metric: %s", in.Metric.Id)
+			response.Error = fmt.Sprintf("failed to update counter metric: %s", in.GetMetric().GetId())
 		}
 		response.Metric = &pb.Metric{
-			Id:    in.Metric.Id,
-			Mtype: in.Metric.Mtype,
+			Id:    in.GetMetric().GetId(),
+			Mtype: in.GetMetric().GetMtype(),
 			Delta: counterValue,
 		}
 	}

@@ -342,8 +342,8 @@ func (c *Collector) metricPostGRPC(metrics []Metric) error {
 		return fmt.Errorf("failed to send metric batch via grpc: %w", err)
 	}
 
-	if resp.Error != "" {
-		return fmt.Errorf("grpc server error: %s", resp.Error)
+	if resp.GetError() != "" {
+		return fmt.Errorf("grpc server error: %s", resp.GetError())
 	}
 	logger.Sugar().Info("posted metric batch via grpc")
 

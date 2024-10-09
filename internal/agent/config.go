@@ -174,7 +174,7 @@ func NewConfig() (*Config, error) {
 	if envGRPC, ok := os.LookupEnv("GRPC"); ok {
 		envGRPC, err := strconv.ParseBool(envGRPC)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse GRPC env setting, expected 0, 1, true or false")
+			return nil, errors.New("failed to parse GRPC env setting, expected true or false")
 		}
 		enableGRPC = &envGRPC
 	}
