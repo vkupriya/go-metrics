@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"strings"
 
 	"fmt"
 	mrand "math/rand"
@@ -28,12 +29,19 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+
+	pb "github.com/vkupriya/go-metrics/internal/proto"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	_ "google.golang.org/grpc/encoding/gzip"
 )
 
 type Collector struct {
 	gauge        map[string]float64
 	counter      map[string]int64
 	config       *Config
+	connGRPC     *grpc.ClientConn
+	clientGRPC   pb.MetricsClient
 	gaugeMutex   sync.Mutex
 	counterMutex sync.Mutex
 }
@@ -207,12 +215,20 @@ func (c *Collector) sendMetrics(ctx context.Context, ch chan []Metric) error {
 				if retry == retries {
 					return fmt.Errorf("failed to send metrics after %d", retries)
 				}
-
-				if err := c.metricPost(metrics, c.config.MetricHost); err != nil {
-					logger.Sugar().Errorf("failed http post metrics batch, retrying: %v\n", err)
+				if c.config.EnableGRPC {
+					if err := c.metricPostGRPC(metrics); err != nil {
+						logger.Sugar().Errorf("failed to post metrics batch, retrying: %v\n", err)
+					} else {
+						break
+					}
 				} else {
-					break
+					if err := c.metricPost(metrics, c.config.MetricHost); err != nil {
+						logger.Sugar().Errorf("failed to post metrics batch, retrying: %v\n", err)
+					} else {
+						break
+					}
 				}
+
 				time.Sleep(time.Duration(1+(retry*retryDelay)) * time.Second)
 				retry++
 			}
@@ -311,6 +327,47 @@ func (c *Collector) metricPost(m []Metric, h string) error {
 	return nil
 }
 
+func (c *Collector) metricPostGRPC(metrics []Metric) error {
+	logger := c.config.Logger
+	mb := make([]*pb.Metric, 0)
+	for _, metric := range metrics {
+		pbMetric, _ := MetricToProto(metric)
+		mb = append(mb, &pbMetric)
+	}
+	resp, err := c.clientGRPC.UpdateMetrics(context.Background(), &pb.UpdateMetricsRequest{
+		Metric: mb,
+	}, grpc.UseCompressor("gzip"))
+
+	if err != nil {
+		return fmt.Errorf("failed to send metric batch via grpc: %w", err)
+	}
+
+	if resp.Error != "" {
+		return fmt.Errorf("grpc server error: %s", resp.Error)
+	}
+	logger.Sugar().Info("posted metric batch via grpc")
+
+	return nil
+}
+
+func MetricToProto(metric Metric) (pb.Metric, error) {
+	switch metric.MType {
+	case "gauge":
+		return pb.Metric{
+			Mtype: pb.Mtype_gauge,
+			Id:    metric.ID,
+			Gauge: *metric.Value,
+		}, nil
+	case "counter":
+		return pb.Metric{
+			Mtype: pb.Mtype_gauge,
+			Id:    metric.ID,
+			Delta: *metric.Delta,
+		}, nil
+	}
+	return pb.Metric{}, nil
+}
+
 func (c *Collector) keyExchange(h string) error {
 	const httpTimeout int = 30
 	const secretKeyLength int = 32
@@ -377,6 +434,23 @@ func (c *Collector) hashHeader(req *resty.Client, body []byte) {
 	req.Header.Set(`HashSHA256`, hex.EncodeToString(hdst))
 }
 
+func NewGRPCClient(c *Collector) error {
+	hostport := strings.Replace(c.config.MetricHost, "http://", "", 1)
+	grpcHost := strings.Split(hostport, ":")[0]
+	if grpcHost == "" || grpcHost == "localhost" {
+		grpcHost = "127.0.0.1"
+	}
+	grpcHost += ":3200"
+	conn, err := grpc.NewClient(grpcHost, grpc.WithTransportCredentials((insecure.NewCredentials())))
+	if err != nil {
+		return fmt.Errorf("failed to connect to grpc server: %w", err)
+	}
+
+	c.connGRPC = conn
+	c.clientGRPC = pb.NewMetricsClient(conn)
+	return nil
+}
+
 func Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -387,6 +461,13 @@ func Start(ctx context.Context) error {
 	}
 
 	collector := NewCollector(c)
+
+	if c.EnableGRPC {
+		err := NewGRPCClient(collector)
+		if err != nil {
+			return fmt.Errorf("failed to initialize grpc client: %w", err)
+		}
+	}
 
 	if len(c.CryptoKey) != 0 {
 		if err := collector.keyExchange(c.MetricHost); err != nil {

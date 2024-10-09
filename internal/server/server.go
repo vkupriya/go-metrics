@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vkupriya/go-metrics/internal/server/config"
+	grpcserver "github.com/vkupriya/go-metrics/internal/server/grpc"
 	"github.com/vkupriya/go-metrics/internal/server/handlers"
 	"github.com/vkupriya/go-metrics/internal/server/models"
 
@@ -65,6 +66,14 @@ func Start(logger *zap.Logger) error {
 		"Starting server",
 		"addr", cfg.Address,
 	)
+
+	g.Go(func() error {
+		defer logger.Sugar().Info("closed GRPC server")
+
+		grpcserver.Run(ctx, s, cfg)
+
+		return nil
+	})
 
 	g.Go(func() error {
 		defer logger.Sugar().Info("closed store")
