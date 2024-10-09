@@ -70,7 +70,9 @@ func Start(logger *zap.Logger) error {
 	g.Go(func() error {
 		defer logger.Sugar().Info("closed GRPC server")
 
-		grpcserver.Run(ctx, s, cfg)
+		if err := grpcserver.Run(ctx, s, cfg); err != nil {
+			return fmt.Errorf("failed to run grpc server: %w", err)
+		}
 
 		return nil
 	})

@@ -44,7 +44,7 @@ func (m *MetricServer) UpdateMetric(ctx context.Context, in *pb.UpdateMetricRequ
 	case "gauge":
 		gaugeValue, err := m.Store.UpdateGaugeMetric(m.config, in.GetMetric().GetId(), in.GetMetric().GetGauge())
 		if err != nil {
-			response.Error = fmt.Sprintf("failed to update gauge metric: %s", in.GetMetric().GetId())
+			response.Error = "failed to update gauge metric: " + in.GetMetric().GetId()
 		}
 		response.Metric = &pb.Metric{
 			Id:    in.GetMetric().GetId(),
@@ -57,7 +57,7 @@ func (m *MetricServer) UpdateMetric(ctx context.Context, in *pb.UpdateMetricRequ
 	case "counter":
 		counterValue, err := m.Store.UpdateCounterMetric(m.config, in.GetMetric().GetId(), in.GetMetric().GetDelta())
 		if err != nil {
-			response.Error = fmt.Sprintf("failed to update counter metric: %s", in.GetMetric().GetId())
+			response.Error = "failed to update counter metric: " + in.GetMetric().GetId()
 		}
 		response.Metric = &pb.Metric{
 			Id:    in.GetMetric().GetId(),
@@ -78,7 +78,7 @@ func (m *MetricServer) UpdateMetrics(ctx context.Context, in *pb.UpdateMetricsRe
 		counter models.Metrics
 	)
 
-	for _, metric := range in.Metric {
+	for _, metric := range in.GetMetric() {
 		modelMetric, err := ProtoToMetric(metric)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert proto Metric into model Metric: %w", err)
@@ -102,19 +102,19 @@ func (m *MetricServer) UpdateMetrics(ctx context.Context, in *pb.UpdateMetricsRe
 
 func ProtoToMetric(pm *pb.Metric) (models.Metric, error) {
 	var mtype string
-	switch pm.Mtype {
+	switch pm.GetMtype() {
 	case pb.Mtype_gauge:
 		mtype = "gauge"
 	case pb.Mtype_counter:
 		mtype = "counter"
 	default:
-		return models.Metric{}, fmt.Errorf("unknown metric type: %s", pm.Mtype)
+		return models.Metric{}, fmt.Errorf("unknown metric type: %s", pm.GetMtype())
 	}
 
 	return models.Metric{
 		Delta: &pm.Delta,
 		Value: &pm.Gauge,
-		ID:    pm.Id,
+		ID:    pm.GetId(),
 		MType: mtype,
 	}, nil
 }
