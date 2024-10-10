@@ -133,14 +133,14 @@ func Run(ctx context.Context, s Storage, c *models.Config) error {
 	}
 
 	loggerOpts := []logging.Option{
-		logging.WithLogOnEvents(logging.StartCall, logging.FinishCall, logging.PayloadReceived),
+		logging.WithLogOnEvents(logging.StartCall, logging.FinishCall),
 	}
 
 	interceptors := make([]grpc.ServerOption, 0)
 
 	interceptors = append(interceptors, grpc.ChainUnaryInterceptor(
-		logging.UnaryServerInterceptor(ic.InterceptorLogger(logger), loggerOpts...),
 		ic.TrustedSubnetInterceptor(c.TrustedSubnet),
+		logging.UnaryServerInterceptor(ic.InterceptorLogger(logger), loggerOpts...),
 	))
 
 	srv := grpc.NewServer(interceptors...)

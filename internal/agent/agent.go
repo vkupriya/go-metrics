@@ -30,10 +30,14 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
 	pb "github.com/vkupriya/go-metrics/internal/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	_ "google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type Collector struct {
@@ -334,7 +338,9 @@ func (c *Collector) metricPostGRPC(metrics []Metric) error {
 		pbMetric, _ := MetricToProto(metric)
 		mb = append(mb, &pbMetric)
 	}
-	resp, err := c.clientGRPC.UpdateMetrics(context.Background(), &pb.UpdateMetricsRequest{
+	md := metadata.New(map[string]string{realip.XRealIp: c.config.OutboundIP.String()})
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+	resp, err := c.clientGRPC.UpdateMetrics(ctx, &pb.UpdateMetricsRequest{
 		Metric: mb,
 	}, grpc.UseCompressor("gzip"))
 
@@ -343,7 +349,14 @@ func (c *Collector) metricPostGRPC(metrics []Metric) error {
 	}
 
 	if resp.GetError() != "" {
-		return fmt.Errorf("grpc server error: %s", resp.GetError())
+		if e, ok := status.FromError(err); ok {
+			switch e.Code() {
+			case codes.PermissionDenied:
+				return fmt.Errorf("permission denied: %s", e.Message())
+			default:
+				return fmt.Errorf("grpc server error: %s", e.Message())
+			}
+		}
 	}
 	logger.Sugar().Info("posted metric batch via grpc")
 

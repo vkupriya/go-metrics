@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/realip"
@@ -24,10 +25,10 @@ func TrustedSubnetInterceptor(subnet *net.IPNet) grpc.UnaryServerInterceptor {
 				remoteAddr = values[0]
 			}
 		}
-
 		ip := net.ParseIP(remoteAddr)
 		if ip == nil || !subnet.Contains(ip) {
-			return nil, status.Error(codes.PermissionDenied, "The request from this ip-address was rejected")
+			msg := fmt.Sprintf("the request from ip %s has been rejected", remoteAddr)
+			return nil, status.Error(codes.PermissionDenied, msg)
 		}
 
 		return handler(ctx, req)
