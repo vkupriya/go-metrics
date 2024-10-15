@@ -36,7 +36,7 @@ type MetricServer struct {
 func (m *MetricServer) UpdateMetric(ctx context.Context, in *pb.UpdateMetricRequest) (*pb.UpdateMetricResponse, error) {
 	var response pb.UpdateMetricResponse
 
-	modelMetric, err := ProtoToMetric(in.GetMetric())
+	modelMetric, err := protoToMetric(in.GetMetric())
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert proto Metric into model Metric: %w", err)
 	}
@@ -79,7 +79,7 @@ func (m *MetricServer) UpdateMetrics(ctx context.Context, in *pb.UpdateMetricsRe
 	)
 
 	for _, metric := range in.GetMetric() {
-		modelMetric, err := ProtoToMetric(metric)
+		modelMetric, err := protoToMetric(metric)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert proto Metric into model Metric: %w", err)
 		}
@@ -100,7 +100,7 @@ func (m *MetricServer) UpdateMetrics(ctx context.Context, in *pb.UpdateMetricsRe
 	return &response, nil
 }
 
-func ProtoToMetric(pm *pb.Metric) (models.Metric, error) {
+func protoToMetric(pm *pb.Metric) (models.Metric, error) {
 	var mtype string
 	switch pm.GetMtype() {
 	case pb.Mtype_gauge:
