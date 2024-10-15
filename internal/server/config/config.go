@@ -142,11 +142,10 @@ func NewConfig() (*models.Config, error) {
 	if *t != "" {
 		_, trustedSubnet, err = net.ParseCIDR(*t)
 		if err != nil {
-			fmt.Println("Error: ", err)
 			return nil, errors.New("trusted subnet is incorrect format, expected 1.2.3.4/24")
 		}
 	}
-	fmt.Println("TrustedSubnet: ", trustedSubnet)
+
 	return &models.Config{
 		Address:         *a,
 		StoreInterval:   *i,

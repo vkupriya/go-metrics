@@ -25,6 +25,7 @@ type Config struct {
 	PollInterval   int64 `json:"poll_interval,omitempty"`
 	httpTimeout    int64
 	rateLimit      int
+	EnableGRPC     bool
 }
 
 type ConfigFile struct {
@@ -37,7 +38,6 @@ type ConfigFile struct {
 func findOutboundIP(l *zap.Logger, h string) (net.IP, error) {
 	// removing 'http://' if present
 	hostport := strings.Replace(h, "http://", "", 1)
-	fmt.Println("hostport:", hostport)
 	host := strings.Split(hostport, ":")[0]
 	if host == "" || host == "localhost" {
 		host = "127.0.0.1"
@@ -88,6 +88,7 @@ func NewConfig() (*Config, error) {
 	hashKey := flag.String("k", "", "Hash key")
 	cryptoKey := flag.String("crypto", "", "Path to public key for asymmetric encryption.")
 	configFile := flag.String("c", "", "Path to json config file.")
+	enableGRPC := flag.Bool("g", false, "Post metrics via GRPC.")
 	flag.Parse()
 
 	if envConfig, ok := os.LookupEnv("CONFIG"); ok {
@@ -170,6 +171,14 @@ func NewConfig() (*Config, error) {
 		}
 	}
 
+	if envGRPC, ok := os.LookupEnv("GRPC"); ok {
+		envGRPC, err := strconv.ParseBool(envGRPC)
+		if err != nil {
+			return nil, errors.New("failed to parse GRPC env setting, expected true or false")
+		}
+		enableGRPC = &envGRPC
+	}
+
 	return &Config{
 		MetricHost:     *metricHost,
 		ReportInterval: *reportInterval,
@@ -181,5 +190,6 @@ func NewConfig() (*Config, error) {
 		CryptoKey:      certPEM,
 		SecretKey:      secretKey,
 		OutboundIP:     outboundIP,
+		EnableGRPC:     *enableGRPC,
 	}, nil
 }

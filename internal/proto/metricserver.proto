@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package metricserver.protobuf;
+
+option go_package = "github.com/vkupriya/go-metrics/internal/proto";
+
+enum Mtype {
+    TYPE_UNSPECIFIED = 0;
+    gauge = 1;
+    counter = 2;
+}
+
+message Metric {
+    string id = 1;
+    Mtype mtype = 2;
+    int64 delta = 3;
+    double gauge = 4;
+}
+
+message UpdateMetricRequest {
+    Metric metric = 1;
+
+}
+
+message UpdateMetricResponse {
+    Metric metric = 1;
+    string error = 2;
+}
+
+message UpdateMetricsRequest {
+    repeated Metric metric = 1;
+}
+
+message UpdateMetricsResponse {
+    string error = 1;
+}
+
+service Metrics {
+    rpc UpdateMetric(UpdateMetricRequest) returns (UpdateMetricResponse);
+    rpc UpdateMetrics(UpdateMetricsRequest) returns (UpdateMetricsResponse);
+}
