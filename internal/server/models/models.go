@@ -2,11 +2,14 @@
 package models
 
 import (
+	"net"
+
 	"go.uber.org/zap"
 )
 
 type Config struct {
 	Logger          *zap.Logger
+	TrustedSubnet   *net.IPNet
 	HashKey         string
 	Address         string
 	FileStoragePath string

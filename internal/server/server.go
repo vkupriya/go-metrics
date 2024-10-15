@@ -94,7 +94,7 @@ func Start(logger *zap.Logger) error {
 		}()
 		if err = srv.ListenAndServe(); err != nil {
 			if errors.Is(err, http.ErrServerClosed) {
-				return
+				return nil
 			}
 			return fmt.Errorf("listen and server has failed: %w", err)
 		}

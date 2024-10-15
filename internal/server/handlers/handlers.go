@@ -108,6 +108,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	mh := mw.NewMiddlewareHash(mr.config)
 	mg := mw.NewMiddlewareGzip(mr.config)
 	md := mw.NewMiddlewareDecrypt(mr.config)
+	mi := mw.NewMiddlewareIPCheck(mr.config)
 
 	r.Use(ml.Logging)
 	r.Post("/", mr.KeyExchange)
@@ -121,6 +122,7 @@ func NewMetricRouter(mr *MetricResource) chi.Router {
 	})
 
 	r.Group(func(r chi.Router) {
+		r.Use(mi.IPCheckHandle)
 		r.Use(mh.HashCheck)
 		r.Use(md.DecryptHandle)
 		r.Use(mg.GzipHandle)

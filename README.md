@@ -50,6 +50,12 @@ cat profile.temp | egrep -v "mock_store.go|test/main|staticlint|keygen" > profil
 go tool cover -func profile.cov
 ```
 
+Use html view to observe code lines coverage with testing:
+
+```bash
+go tool cover -html=profile.cov -o coverage.html
+```
+
 ## Проверка кода мультическером
 
 Мультическер (multichecker) проверяет код всеми стандартными анализаторами *golang.org/x/tools/go/analysis/passes* , а также кастомным анализатором, который запрещает использовать os.Exit() в main. Запускается multichecker следующим образом из корня проекта:
